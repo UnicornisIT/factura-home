@@ -1,0 +1,49 @@
+CREATE TABLE IF NOT EXISTS collections (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, slug VARCHAR(100) NOT NULL UNIQUE, title VARCHAR(255) NOT NULL,
+ coverImage TEXT, sortOrder INT DEFAULT 0, createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS products (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, collectionId BIGINT UNSIGNED NOT NULL,
+ name VARCHAR(255) NOT NULL, material VARCHAR(255) DEFAULT '', price INT NOT NULL, image TEXT,
+ isActive BOOLEAN NOT NULL DEFAULT TRUE, sortOrder INT DEFAULT 0,
+ createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ INDEX idx_products_collection(collectionId), FOREIGN KEY (collectionId) REFERENCES collections(id) ON DELETE RESTRICT
+);
+CREATE TABLE IF NOT EXISTS orders (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, contact VARCHAR(320) NOT NULL,
+ comment TEXT, items TEXT NOT NULL, total INT NOT NULL, status ENUM('new','in_progress','shipped','done') NOT NULL DEFAULT 'new',
+ createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, INDEX idx_orders_status_created(status,createdAt)
+);
+CREATE TABLE IF NOT EXISTS siteContent (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, shopName VARCHAR(255) NOT NULL DEFAULT 'Глиняная мастерская',
+ heroTitle VARCHAR(500) NOT NULL DEFAULT 'Декор для дома ручной работы', heroText TEXT NOT NULL,
+ aboutTitle VARCHAR(255) NOT NULL DEFAULT 'О мастерской', aboutText TEXT NOT NULL, aboutImage TEXT,
+ deliveryTitle VARCHAR(255) NOT NULL DEFAULT 'Доставка по всей России', deliveryText TEXT NOT NULL,
+ footerCta VARCHAR(500) NOT NULL DEFAULT 'Для заказа напишите в удобный для вас мессенджер',
+ telegram VARCHAR(500) DEFAULT '', whatsapp VARCHAR(500) DEFAULT '', email VARCHAR(320) DEFAULT '',
+ updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS adminAllowlist (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, telegramId BIGINT UNSIGNED NOT NULL UNIQUE,
+ role ENUM('super_admin','admin') NOT NULL DEFAULT 'admin', addedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ addedByTelegramId BIGINT UNSIGNED, isActive BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS adminSessions (
+ tokenHash VARCHAR(64) PRIMARY KEY,
+ telegramId BIGINT NOT NULL,
+ payload TEXT NOT NULL,
+ expiresAt BIGINT NOT NULL,
+ INDEX idx_sessions_telegram(telegramId), INDEX idx_sessions_expiry(expiresAt)
+);
+CREATE TABLE IF NOT EXISTS telegramAuthReplay (hash VARCHAR(64) PRIMARY KEY, expiresAt BIGINT NOT NULL, INDEX idx_replay_expiry(expiresAt));
+CREATE TABLE IF NOT EXISTS adminAuditLog (
+ id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ createdAt BIGINT NOT NULL,
+ actorTelegramId BIGINT NOT NULL,
+ targetTelegramId BIGINT,
+ action VARCHAR(128) NOT NULL,
+ roleBefore VARCHAR(32), roleAfter VARCHAR(32), outcome VARCHAR(32) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS apiRateLimits (bucket VARCHAR(64) PRIMARY KEY, hits INTEGER NOT NULL, expiresAt BIGINT NOT NULL, INDEX idx_rate_expiry(expiresAt));

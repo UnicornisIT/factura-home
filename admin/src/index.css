@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #5c2a2a;
+  --brand-light: #7a3a3a;
+  --sidebar: #1e293b;
+  --sidebar-hover: #273449;
+  --sidebar-border: #334155;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, sans-serif;
+  background: #f8fafc;
+  color: #0f172a;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Тонкий скроллбар в админ-панели */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Утилита — карточка */
+.adm-card {
+  @apply bg-white border border-slate-200 rounded-xl shadow-sm;
+}
+
+/* Утилита — pill-кнопка */
+.adm-pill {
+  @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors;
+}
+.adm-pill--brand {
+  @apply bg-[#5C2A2A] text-white border-[#5C2A2A] hover:bg-[#7a3a3a];
+}
+.adm-pill--danger {
+  @apply text-red-700 border-red-300 hover:bg-red-50;
+}
