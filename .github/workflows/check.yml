@@ -45,6 +45,19 @@ jobs:
           npm run db:migrate
           npm run test:mysql
       - name: Secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          # The full history includes the root commit, which has no parent for a SHA^ range.
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo:ro" \
+            -v "$RUNNER_TEMP/gitleaks:/report" \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            git /repo --redact --log-opts="--all" \
+            --report-format=sarif --report-path=/report/results.sarif
+      - name: Upload secret scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results
+          path: ${{ runner.temp }}/gitleaks/results.sarif
+          if-no-files-found: ignore
