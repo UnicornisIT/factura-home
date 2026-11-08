@@ -1,0 +1,50 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: local-ci-password
+          MYSQL_DATABASE: glina_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -plocal-ci-password"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            admin/package-lock.json
+      - run: npm ci --prefix app
+      - run: npm ci --prefix admin
+      - run: npm audit --omit=dev --audit-level=moderate --prefix app
+      - run: npm audit --omit=dev --audit-level=moderate --prefix admin
+      - run: npm run lint && npm run format:check && npm run check && npm test && npm run build && npm run test:deployment
+        working-directory: app
+      - run: npm run lint && npm run format:check && npm run check
+        working-directory: admin
+      - name: MySQL migration and integration smoke
+        working-directory: app
+        env:
+          DB_DIALECT: mysql
+          DATABASE_URL: mysql://root:local-ci-password@127.0.0.1:3306/glina_test
+          SUPER_ADMIN_TELEGRAM_ID: 100
+        run: |
+          npm run db:migrate
+          npm run db:migrate
+          npm run test:mysql
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
