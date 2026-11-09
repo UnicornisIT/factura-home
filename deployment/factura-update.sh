@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# Обновление Glina Shop до последнего GitHub-релиза.
+# Обновление Factura Shop до последнего GitHub-релиза.
 #
 # Запускается от root (чер sudoers-запись) по кнопке «Обновить» в админ-панели
-# или вручную: sudo /usr/local/sbin/glina-update.sh
+# или вручную: sudo /usr/local/sbin/factura-update.sh
 #
 # Поток: блокировка (flock) -> статус "running" -> последний релиз через GitHub API
 # -> резервная копия БД и .env -> git fetch/checkout тега -> npm ci -> build
-# -> db:migrate -> systemctl restart -> healthcheck. При сбое код откатывается
-# на предыдущий тег и сервис перезапускается; БД не откатывается.
-# Итог пишется в SERVER_UPDATE_STATUS_PATH (JSON), журнал — /var/log/glina/update.log.
+# -> db:migrate -> переустановка скрипта обновления и systemd-юнита из нового тега
+# -> systemctl restart -> healthcheck. При сбое код, скрипт обновления и юнит
+# откатываются на предыдущие, сервис перезапускается; БД не откатывается.
+# Итог пишется в SERVER_UPDATE_STATUS_PATH (JSON), журнал — /var/log/factura/update.log.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "Требуется root" >&2; exit 1; }
 
-APP_DIR="${GLINA_APP_DIR:-/opt/glina/current}"
+APP_DIR="${FACTURA_APP_DIR:-/opt/factura/current}"
 ENV_FILE="$APP_DIR/app/.env"
 [ -f "$ENV_FILE" ] || { echo "Не найден $ENV_FILE" >&2; exit 1; }
 set -a
@@ -21,13 +22,16 @@ set -a
 . "$ENV_FILE"
 set +a
 
-SERVICE="${GLINA_SERVICE:-glina}"
+SERVICE="${FACTURA_SERVICE:-factura}"
 REPOSITORY="${SERVER_UPDATE_REPOSITORY:-UnicornisIT/factura-home}"
 TOKEN="${SERVER_UPDATE_TOKEN:-}"
-STATUS_PATH="${SERVER_UPDATE_STATUS_PATH:-/var/lib/glina/update-status.json}"
-BACKUP_DIR="${GLINA_BACKUP_DIR:-/var/backups/glina}"
-LOG_FILE="${GLINA_UPDATE_LOG:-/var/log/glina/update.log}"
-LOCK_FILE="/run/lock/glina-update.lock"
+STATUS_PATH="${SERVER_UPDATE_STATUS_PATH:-/var/lib/factura/update-status.json}"
+BACKUP_DIR="${FACTURA_BACKUP_DIR:-/var/backups/factura}"
+LOG_FILE="${FACTURA_UPDATE_LOG:-/var/log/factura/update.log}"
+LOCK_FILE="/run/lock/factura-update.lock"
+UPDATE_SELF="${SERVER_UPDATE_SCRIPT:-/usr/local/sbin/factura-update.sh}"
+UNIT_FILE="/etc/systemd/system/$SERVICE.service"
+DATA_DIR="${FACTURA_DATA_DIR:-/var/lib/factura}"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-3000}"
 HEALTHCHECK_URL="http://$HOST:$PORT/api/trpc/ping"
@@ -71,7 +75,7 @@ github_api() {
   curl -fsSL \
     ${TOKEN:+-H "Authorization: Bearer $TOKEN"} \
     -H "Accept: application/vnd.github+json" \
-    -H "User-Agent: glina-updater" \
+    -H "User-Agent: factura-updater" \
     "$@"
 }
 
@@ -82,6 +86,7 @@ finish_failed() { # finish_failed message [rollback:true]
     echo "$(date -Is) [$OPERATION_ID] откат кода на $CURRENT_REF"
     if git -C "$APP_DIR" checkout -f "$CURRENT_REF" &&
       run_as_app "npm ci" && run_as_app "npm run build"; then
+      restore_deployment_files
       systemctl restart "$SERVICE"
       echo "$(date -Is) [$OPERATION_ID] откат завершён (БД не откатывается)"
     else
@@ -95,6 +100,35 @@ finish_failed() { # finish_failed message [rollback:true]
 
 run_as_app() { # run_as_app "команда" — выполняется в $APP_DIR/app от имени владельца
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && $1"
+}
+
+install_deployment_files() { # переустановка скрипта обновления и юнита из нового тега
+  if [ -f "$APP_DIR/deployment/factura-update.sh" ]; then
+    cp -f "$UPDATE_SELF" "$DEST/factura-update.sh.prev"
+    # install заменяет файл атомарно через rename: уже запущенный процесс
+    # продолжает выполняться из старого inode.
+    install -o root -g root -m 755 "$APP_DIR/deployment/factura-update.sh" "$UPDATE_SELF"
+  fi
+  if [ -f "$APP_DIR/deployment/factura.service" ]; then
+    [ -f "$UNIT_FILE" ] && cp -f "$UNIT_FILE" "$DEST/factura.service.prev"
+    sed -e "s|@APP_DIR@|$APP_DIR|g" \
+      -e "s|@APP_USER@|$APP_USER|g" \
+      -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE")|g" \
+      "$APP_DIR/deployment/factura.service" >"$UNIT_FILE.tmp"
+    mv -f "$UNIT_FILE.tmp" "$UNIT_FILE"
+    systemctl daemon-reload
+  fi
+}
+
+restore_deployment_files() { # возврат скрипта обновления и юнита из резервной копии
+  if [ -n "${DEST:-}" ]; then
+    [ -f "$DEST/factura-update.sh.prev" ] &&
+      install -o root -g root -m 755 "$DEST/factura-update.sh.prev" "$UPDATE_SELF"
+    [ -f "$DEST/factura.service.prev" ] &&
+      cp -f "$DEST/factura.service.prev" "$UNIT_FILE" &&
+      systemctl daemon-reload
+  fi
+  return 0
 }
 
 backup_database() { # backup_database dest_dir
@@ -171,6 +205,7 @@ run_as_app "npm ci" || finish_failed "npm ci (app) не удался" true
 sudo -u "$APP_USER" bash -c "cd '$APP_DIR/admin' && npm ci" || finish_failed "npm ci (admin) не удался" true
 run_as_app "npm run build" || finish_failed "сборка не удалась" true
 run_as_app "npm run db:migrate" || finish_failed "миграции не применились" true
+install_deployment_files || finish_failed "переустановка файлов деплоя не удалась" true
 systemctl restart "$SERVICE" || finish_failed "перезапуск сервиса не удался" true
 healthcheck || finish_failed "healthcheck не прошёл после перезапуска" true
 

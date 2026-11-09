@@ -2,7 +2,7 @@ import { afterAll } from "vitest";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
-const uploads = resolve(join(tmpdir(), `glina-tests-${process.pid}`));
+const uploads = resolve(join(tmpdir(), `factura-tests-${process.pid}`));
 process.env.UPLOAD_DIR = uploads;
 afterAll(() => {
   if (

@@ -1,5 +1,5 @@
 [Unit]
-Description=Glina Shop (витрина, админ-панель, API)
+Description=Factura Shop (витрина, админ-панель, API)
 Documentation=https://github.com/UnicornisIT/factura-home
 After=network-online.target mysql.service
 Wants=network-online.target
@@ -14,7 +14,7 @@ ExecStart=/usr/bin/node dist/boot.js
 Restart=on-failure
 RestartSec=5
 # NoNewPrivileges не включается: обновлению из панели нужна sudoers-запись
-# на /usr/local/sbin/glina-update.sh (см. deployment/sudoers-glina-update).
+# на /usr/local/sbin/factura-update.sh (см. deployment/sudoers-factura-update).
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true

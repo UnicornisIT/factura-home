@@ -34,7 +34,7 @@ function stubFetch(response: { ok: boolean; status: number; body?: unknown }) {
 }
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
-  const dir = await mkdtemp(join(tmpdir(), "glina-update-"));
+  const dir = await mkdtemp(join(tmpdir(), "factura-update-"));
   try {
     return await run(dir);
   } finally {

@@ -55,7 +55,7 @@ export async function fetchLatestRelease(
     {
       headers: {
         Accept: "application/vnd.github+json",
-        "User-Agent": "glina-shop",
+        "User-Agent": "factura-shop",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     }

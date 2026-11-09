@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
-const directory = await mkdtemp(join(tmpdir(), "glina-smoke-"));
+const directory = await mkdtemp(join(tmpdir(), "factura-smoke-"));
 const config = {
   ...process.env,
   NODE_ENV: "production",
@@ -131,6 +131,6 @@ try {
     server.kill();
     await new Promise<void>(resolve => server!.once("exit", () => resolve()));
   }
-  assert.ok(directory.startsWith(join(tmpdir(), "glina-smoke-")));
+  assert.ok(directory.startsWith(join(tmpdir(), "factura-smoke-")));
   await rm(directory, { recursive: true, force: true });
 }

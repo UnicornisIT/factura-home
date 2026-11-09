@@ -68,8 +68,8 @@ describe("production configuration", () => {
         SERVER_UPDATE_ENABLED: "true",
         SERVER_UPDATE_TOKEN: "test-only-token",
         SERVER_UPDATE_REPOSITORY: "UnicornisIT/factura-home",
-        SERVER_UPDATE_SCRIPT: "/usr/local/sbin/glina-update.sh",
-        SERVER_UPDATE_STATUS_PATH: "/var/lib/glina/update-status.json",
+        SERVER_UPDATE_SCRIPT: "/usr/local/sbin/factura-update.sh",
+        SERVER_UPDATE_STATUS_PATH: "/var/lib/factura/update-status.json",
       }).status
     ).toBe(0);
   }, 60000);

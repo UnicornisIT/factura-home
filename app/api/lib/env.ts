@@ -66,9 +66,10 @@ if (
 const serverUpdateRepository =
   process.env.SERVER_UPDATE_REPOSITORY || "UnicornisIT/factura-home";
 const serverUpdateScript =
-  process.env.SERVER_UPDATE_SCRIPT || "/usr/local/sbin/glina-update.sh";
+  process.env.SERVER_UPDATE_SCRIPT || "/usr/local/sbin/factura-update.sh";
 const serverUpdateStatusPath =
-  process.env.SERVER_UPDATE_STATUS_PATH || "/var/lib/glina/update-status.json";
+  process.env.SERVER_UPDATE_STATUS_PATH ||
+  "/var/lib/factura/update-status.json";
 if (serverUpdateEnabled) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(serverUpdateRepository))
     throw new Error("SERVER_UPDATE_REPOSITORY must be in owner/name form");

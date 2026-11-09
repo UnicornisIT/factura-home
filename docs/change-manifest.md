@@ -27,7 +27,7 @@
 - `app/tests/mysql-smoke.ts`
 - `app/tests/production.test.ts`
 
-- `docs/glina-shop-audit.md`
+- `docs/factura-shop-audit.md`
 - `docs/implementation-report.md`
 - `docs/change-manifest.md`
 

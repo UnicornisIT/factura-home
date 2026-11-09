@@ -10,7 +10,7 @@ jobs:
         image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: local-ci-password
-          MYSQL_DATABASE: glina_test
+          MYSQL_DATABASE: factura_test
         ports: ["3306:3306"]
         options: >-
           --health-cmd="mysqladmin ping -h localhost -plocal-ci-password"
@@ -38,7 +38,7 @@ jobs:
         working-directory: app
         env:
           DB_DIALECT: mysql
-          DATABASE_URL: mysql://root:local-ci-password@127.0.0.1:3306/glina_test
+          DATABASE_URL: mysql://root:local-ci-password@127.0.0.1:3306/factura_test
           SUPER_ADMIN_TELEGRAM_ID: 100
         run: |
           npm run db:migrate

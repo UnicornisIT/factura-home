@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Интерактивный мастер первоначальной настройки сервера Glina Shop (Ubuntu 22.04+/Debian 12+).
+# Интерактивный мастер первоначальной настройки сервера Factura Shop (Ubuntu 22.04+/Debian 12+).
 #
 # Запуск (от root):
 #   sudo bash deployment/setup.sh
@@ -8,23 +8,23 @@
 #   1. Проверяет ОС и спрашивает разрешение на установку компонентов
 #      (git, curl, Node.js 22, build-essential, MySQL 8, nginx).
 #   2. Создаёт системного пользователя, каталоги и клонирует репозиторий
-#      по выбранному тегу в /opt/glina/current.
+#      по выбранному тегу в /opt/factura/current.
 #   3. Интерактивно собирает app/.env (Telegram-токен, владелец, БД, секреты)
 #      по образцу .env.example; APP_SECRET генерируется автоматически.
 #   4. Устанавливает зависимости, собирает проект, применяет миграции.
-#   5. Ставит systemd-сервис glina.service и выполняет healthcheck.
-#   6. При включении автообновления ставит /usr/local/sbin/glina-update.sh
+#   5. Ставит systemd-сервис factura.service и выполняет healthcheck.
+#   6. При включении автообновления ставит /usr/local/sbin/factura-update.sh
 #      и ограниченную sudoers-запись для него.
 set -euo pipefail
 
-APP_USER="${APP_USER:-glina}"
-APP_PARENT="${APP_PARENT:-/opt/glina}"
+APP_USER="${APP_USER:-factura}"
+APP_PARENT="${APP_PARENT:-/opt/factura}"
 APP_DIR="${APP_PARENT}/current"
-DATA_DIR="${DATA_DIR:-/var/lib/glina}"
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/glina}"
-LOG_DIR="${LOG_DIR:-/var/log/glina}"
-SERVICE_NAME="${SERVICE_NAME:-glina}"
-UPDATE_SCRIPT="/usr/local/sbin/glina-update.sh"
+DATA_DIR="${DATA_DIR:-/var/lib/factura}"
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/factura}"
+LOG_DIR="${LOG_DIR:-/var/log/factura}"
+SERVICE_NAME="${SERVICE_NAME:-factura}"
+UPDATE_SCRIPT="/usr/local/sbin/factura-update.sh"
 REPO_DEFAULT="UnicornisIT/factura-home"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -122,7 +122,7 @@ install_nginx() {
   fi
   if confirm "Установить nginx (reverse proxy)?"; then
     apt-get install -y -qq nginx
-    cat >/etc/nginx/sites-available/glina <<EOF
+    cat >/etc/nginx/sites-available/factura <<EOF
 # Пример конфигурации: TLS настройте отдельно (например, certbot).
 server {
     listen 80;
@@ -137,7 +137,7 @@ server {
     }
 }
 EOF
-    ln -sf /etc/nginx/sites-available/glina /etc/nginx/sites-enabled/glina
+    ln -sf /etc/nginx/sites-available/factura /etc/nginx/sites-enabled/factura
     rm -f /etc/nginx/sites-enabled/default
     nginx -t && systemctl reload nginx
     warn "Сгенерирован HTTP-vhost; до запуска добавьте TLS (PUBLIC_ORIGIN требует HTTPS)"
@@ -212,7 +212,7 @@ install_service() {
   sed -e "s|@APP_DIR@|$APP_DIR|g" \
     -e "s|@APP_USER@|$APP_USER|g" \
     -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR|g" \
-    "$APP_DIR/deployment/glina.service" >/etc/systemd/system/$SERVICE_NAME.service
+    "$APP_DIR/deployment/factura.service" >/etc/systemd/system/$SERVICE_NAME.service
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME"
   log "Сервис $SERVICE_NAME запущен"
@@ -232,9 +232,9 @@ healthcheck() {
 }
 
 install_updater() {
-  install -o root -g root -m 755 "$APP_DIR/deployment/glina-update.sh" "$UPDATE_SCRIPT"
-  sed -e "s/^glina /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SCRIPT|" \
-    "$APP_DIR/deployment/sudoers-glina-update" >/etc/sudoers.d/$SERVICE_NAME-update
+  install -o root -g root -m 755 "$APP_DIR/deployment/factura-update.sh" "$UPDATE_SCRIPT"
+  sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SCRIPT|" \
+    "$APP_DIR/deployment/sudoers-factura-update" >/etc/sudoers.d/$SERVICE_NAME-update
   chmod 440 /etc/sudoers.d/$SERVICE_NAME-update
   visudo -cf /etc/sudoers.d/$SERVICE_NAME-update || {
     rm -f /etc/sudoers.d/$SERVICE_NAME-update
@@ -270,8 +270,8 @@ main() {
   if [ "$DB_DIALECT" = mysql ]; then
     install_packages mysql-client
     install_mysql_server
-    ask DB_NAME "Имя базы данных" "glina"
-    ask DB_USER "Пользователь БД" "glina"
+    ask DB_NAME "Имя базы данных" "factura"
+    ask DB_USER "Пользователь БД" "factura"
     ask_secret DB_PASS "Пароль пользователя БД"
     [ -n "$DB_PASS" ] || die "Пустой пароль БД недопустим"
     if command -v mysqld >/dev/null 2>&1 && confirm "Создать базу $DB_NAME и пользователя $DB_USER локально?"; then
@@ -279,7 +279,7 @@ main() {
     fi
     DB_LINE="DATABASE_URL=mysql://$DB_USER:$DB_PASS@127.0.0.1:3306/$DB_NAME"
   else
-    DB_LINE="SQLITE_PATH=$DATA_DIR/glina.db"
+    DB_LINE="SQLITE_PATH=$DATA_DIR/factura.db"
   fi
 
   log "Шаг 4/7. Параметры приложения"

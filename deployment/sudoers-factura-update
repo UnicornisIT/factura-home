@@ -1,3 +1,3 @@
-# /etc/sudoers.d/glina-update — устанавливается deployment/setup.sh.
+# /etc/sudoers.d/factura-update — устанавливается deployment/setup.sh.
 # Пользователю сервиса разрешён запуск ровно одного скрипта обновления от root.
-glina ALL=(root) NOPASSWD: @UPDATE_SCRIPT@
+factura ALL=(root) NOPASSWD: @UPDATE_SCRIPT@
