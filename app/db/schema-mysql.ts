@@ -14,6 +14,7 @@ export const collections = mysqlTable("collections", {
   id: serial("id").primaryKey(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   title: varchar("title", { length: 255 }).notNull(),
+  description: varchar("description", { length: 1000 }).default("").notNull(),
   coverImage: text("coverImage"),
   sortOrder: int("sortOrder").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -83,9 +84,15 @@ export const siteContent = mysqlTable("siteContent", {
   footerCta: varchar("footerCta", { length: 500 })
     .notNull()
     .default("Для заказа напишите в удобный для вас мессенджер"),
+  footerText: varchar("footerText", { length: 500 }).default("").notNull(),
   telegram: varchar("telegram", { length: 500 }).default(""),
   whatsapp: varchar("whatsapp", { length: 500 }).default(""),
+  vk: varchar("vk", { length: 500 }).default("").notNull(),
   email: varchar("email", { length: 320 }).default(""),
+  logoImage: text("logoImage"),
+  showShopName: boolean("showShopName").default(true).notNull(),
+  navJson: varchar("navJson", { length: 4000 }).default("[]").notNull(),
+  designJson: varchar("designJson", { length: 8000 }).default("{}").notNull(),
   updatedAt: timestamp("updatedAt")
     .defaultNow()
     .notNull()

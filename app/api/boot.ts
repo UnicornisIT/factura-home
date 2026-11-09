@@ -18,7 +18,15 @@ const app = new Hono<{ Bindings: HttpBindings }>();
 app.use("*", async (c, next) => {
   await next();
   c.res.headers.set("X-Content-Type-Options", "nosniff");
-  c.res.headers.set("X-Frame-Options", "DENY");
+  // Предпросмотр в админ-панели показывает витрину в iframe.
+  // В production админка на том же origin — достаточно SAMEORIGIN;
+  // в dev админка на :3001, поэтому рамку ограничиваем через CSP.
+  if (env.isProduction) c.res.headers.set("X-Frame-Options", "SAMEORIGIN");
+  else
+    c.res.headers.set(
+      "Content-Security-Policy",
+      "frame-ancestors 'self' http://localhost:3001"
+    );
   c.res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/admin"))
     c.res.headers.set("Cache-Control", "no-store");

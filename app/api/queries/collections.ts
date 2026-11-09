@@ -12,6 +12,7 @@ export async function listCollections(): Promise<Collection[]> {
 export async function createCollection(data: {
   slug: string;
   title: string;
+  description?: string;
   coverImage?: string | null;
   sortOrder?: number;
 }): Promise<Collection> {
@@ -20,7 +21,12 @@ export async function createCollection(data: {
 
 export async function updateCollection(
   id: number,
-  data: Partial<Pick<Collection, "slug" | "title" | "coverImage" | "sortOrder">>
+  data: Partial<
+    Pick<
+      Collection,
+      "slug" | "title" | "description" | "coverImage" | "sortOrder"
+    >
+  >
 ): Promise<Collection> {
   await getDb().update(collections).set(data).where(eq(collections.id, id));
   const rows = await getDb()

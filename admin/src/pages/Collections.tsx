@@ -20,11 +20,18 @@ type CollForm = {
   id?: number;
   slug: string;
   title: string;
+  description: string;
   coverImage: string;
   sortOrder: number;
 };
 
-const EMPTY: CollForm = { slug: "", title: "", coverImage: "", sortOrder: 1 };
+const EMPTY: CollForm = {
+  slug: "",
+  title: "",
+  description: "",
+  coverImage: "",
+  sortOrder: 1,
+};
 
 export default function Collections() {
   const utils = trpc.useUtils();
@@ -57,6 +64,7 @@ export default function Collections() {
       id: c.id,
       slug: c.slug,
       title: c.title,
+      description: c.description ?? "",
       coverImage: c.coverImage ?? "",
       sortOrder: c.sortOrder ?? 0,
     });
@@ -68,6 +76,7 @@ export default function Collections() {
     const payload = {
       slug: form.slug,
       title: form.title,
+      description: form.description,
       coverImage: form.coverImage || null,
       sortOrder: form.sortOrder,
     };
@@ -99,6 +108,11 @@ export default function Collections() {
             <div className="p-4 space-y-1">
               <div className="font-semibold text-base">{c.title}</div>
               <div className="text-xs text-slate-500">/{c.slug}</div>
+              {c.description && (
+                <div className="text-xs text-slate-600 line-clamp-2">
+                  {c.description}
+                </div>
+              )}
               <div className="pt-3">
                 <Button
                   size="sm"
@@ -143,6 +157,21 @@ export default function Collections() {
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="Весенняя коллекция"
                 />
+              </div>
+              <div>
+                <Label>Описание (необязательно)</Label>
+                <Input
+                  value={form.description}
+                  onChange={(e) =>
+                    setForm({ ...form, description: e.target.value })
+                  }
+                  placeholder="Тёплые свечи и подсвечники для уютных вечеров"
+                  maxLength={1000}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Показывается на карточке категории в каталоге и под заголовком
+                  при выборе фильтра товаров.
+                </p>
               </div>
               <div>
                 <Label>Slug (латиницей) *</Label>

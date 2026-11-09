@@ -303,10 +303,9 @@ export default function Builder() {
           </DialogHeader>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {BLOCK_LIBRARY.map((entry) => {
-              const disabled =
-                entry.type === "products" || entry.type === "catalog"
-                  ? usedSingletons.has(entry.type)
-                  : false;
+              const disabled = SINGLETON_BLOCK_TYPES.includes(entry.type)
+                ? usedSingletons.has(entry.type)
+                : false;
               return (
                 <button
                   key={entry.type}

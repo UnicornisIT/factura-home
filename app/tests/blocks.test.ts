@@ -91,6 +91,94 @@ describe("blocks queries (SQLite)", () => {
     await expect(createBlock({ type: "products", data: {} })).rejects.toThrow(
       /только один/
     );
+    await createBlock({ type: "contacts", data: {} });
+    await expect(createBlock({ type: "contacts", data: {} })).rejects.toThrow(
+      /только один/
+    );
+  });
+
+  it("accepts legacy cover data without the redesigned fields", async () => {
+    const legacy = await createBlock({
+      type: "cover",
+      data: {
+        title: "Старая обложка",
+        text: "Текст",
+        buttonText: "Каталог",
+        buttonLink: "#catalog",
+        backgroundImage: "",
+        align: "center",
+      },
+    });
+    expect(legacy.data.title).toBe("Старая обложка");
+  });
+
+  it("accepts extended cover data and validates icon keys", async () => {
+    const cover = await createBlock({
+      type: "cover",
+      data: {
+        eyebrow: "Маленькие детали",
+        title: "Декор",
+        text: "Текст",
+        buttonText: "Смотреть",
+        buttonLink: "#catalog",
+        backgroundImage: "",
+        align: "left",
+        image: "/uploads/abc.webp",
+        imagePosition: "right",
+        features: [{ icon: "leaf", title: "Натурально" }],
+      },
+    });
+    if (cover.type !== "cover") throw new Error("expected cover");
+    expect(cover.data.features?.[0]?.icon).toBe("leaf");
+    await expect(
+      createBlock({
+        type: "cover",
+        data: {
+          title: "Декор",
+          text: "Текст",
+          buttonText: "",
+          buttonLink: "",
+          backgroundImage: "",
+          align: "left",
+          features: [{ icon: "skull", title: "Неизвестная иконка" }],
+        },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("accepts delivery cards and contacts data", async () => {
+    const delivery = await createBlock({
+      type: "delivery",
+      data: {
+        title: "Доставка",
+        text: "Текст",
+        image: "/uploads/abc.webp",
+        cards: [
+          { icon: "truck", title: "Доставка", text: "СДЭК" },
+          { icon: "card", title: "Оплата", text: "Перевод" },
+        ],
+      },
+    });
+    if (delivery.type !== "delivery") throw new Error("expected delivery");
+    expect(delivery.data.cards).toHaveLength(2);
+    const contacts = await createBlock({
+      type: "contacts",
+      data: { title: "Контакты", text: "Напишите нам" },
+    });
+    expect(contacts.type).toBe("contacts");
+  });
+
+  it("keeps legacy catalog data valid and accepts new fields", async () => {
+    const legacy = await createBlock({
+      type: "catalog",
+      data: { title: "Каталог" },
+    });
+    expect(legacy.data.title).toBe("Каталог");
+    const full = await updateBlock(legacy.id, {
+      data: { title: "Каталог", text: "Категории", columns: 3 },
+    });
+    if (full.type !== "catalog") throw new Error("expected catalog");
+    expect(full.data.columns).toBe(3);
   });
 
   it("updates data and visibility", async () => {
@@ -199,6 +287,7 @@ describe("blocks queries (SQLite)", () => {
       "catalog",
       "products",
       "delivery",
+      "contacts",
     ]);
     const cover = all[0];
     if (cover.type !== "cover") throw new Error("expected cover block");
@@ -210,7 +299,7 @@ describe("blocks queries (SQLite)", () => {
     expect(about.data.text).toBe("test about");
     // Повторный вызов ничего не добавляет
     await ensureDefaultBlocks();
-    await expect(listAllBlocks()).resolves.toHaveLength(5);
+    await expect(listAllBlocks()).resolves.toHaveLength(6);
   });
 
   it("ensureDefaultBlocks is a no-op without siteContent", async () => {

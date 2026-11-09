@@ -16,6 +16,7 @@ export const collectionsRouter = createRouter({
       z.object({
         slug: z.string().min(1).max(100),
         title: z.string().min(1).max(255),
+        description: z.string().max(1000).optional(),
         coverImage: imageUrl.nullable().optional(),
         sortOrder: z.number().int().optional(),
       })
@@ -28,6 +29,7 @@ export const collectionsRouter = createRouter({
         id: z.number(),
         slug: z.string().min(1).max(100).optional(),
         title: z.string().min(1).max(255).optional(),
+        description: z.string().max(1000).optional(),
         coverImage: imageUrl.nullable().optional(),
         sortOrder: z.number().int().optional(),
       })

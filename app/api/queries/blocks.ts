@@ -75,7 +75,7 @@ export async function createBlock(input: {
   )
     throw new TRPCError({
       code: "CONFLICT",
-      message: "Блок «Каталог» или «Товары» может быть только один",
+      message: "Блок «Каталог», «Товары» или «Контакты» может быть только один",
     });
   const data = validateBlockData(type, input.data ?? blockDefaults(type));
   const position =
@@ -195,6 +195,7 @@ export async function ensureDefaultBlocks(): Promise<void> {
       type: "delivery",
       data: { title: content.deliveryTitle, text: content.deliveryText },
     },
+    { type: "contacts", data: blockDefaults("contacts") },
   ];
   let position = 1;
   for (const item of defaults) {

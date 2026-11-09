@@ -7,6 +7,7 @@ export const collections = sqliteTable("collections", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
+  description: text("description").default("").notNull(),
   coverImage: text("coverImage"),
   sortOrder: integer("sortOrder").default(0),
   createdAt: integer("createdAt", { mode: "timestamp" }).default(ts).notNull(),
@@ -64,9 +65,17 @@ export const siteContent = sqliteTable("siteContent", {
   footerCta: text("footerCta")
     .notNull()
     .default("Для заказа напишите в удобный для вас мессенджер"),
+  footerText: text("footerText").default("").notNull(),
   telegram: text("telegram").default(""),
   whatsapp: text("whatsapp").default(""),
+  vk: text("vk").default("").notNull(),
   email: text("email").default(""),
+  logoImage: text("logoImage"),
+  showShopName: integer("showShopName", { mode: "boolean" })
+    .default(true)
+    .notNull(),
+  navJson: text("navJson").default("[]").notNull(),
+  designJson: text("designJson").default("{}").notNull(),
   updatedAt: integer("updatedAt", { mode: "timestamp" })
     .default(ts)
     .notNull()

@@ -1,11 +1,13 @@
 import { useState, type CSSProperties } from "react";
 import type { Block, BlockType } from "@contracts/blocks";
 import { foregroundFor, videoEmbedUrl } from "@contracts/blocks";
+import { Icon, LeafDecor } from "@/components/Icon";
 
 export type CatalogCollection = {
   id: number;
   slug: string;
   title: string;
+  description: string;
   coverImage: string | null;
 };
 
@@ -18,14 +20,23 @@ export type CatalogProduct = {
   image: string | null;
 };
 
+export type ContactLinks = {
+  telegram: string;
+  whatsapp: string;
+  vk: string;
+  email: string;
+};
+
 export type BlockContextValue = {
   collections: CatalogCollection[];
   products: CatalogProduct[];
+  /** null — фильтр «Все категории». */
   activeSlug: string | null;
-  onSelectCollection: (slug: string) => void;
+  onSelectCollection: (slug: string | null) => void;
   onAddToCart: (product: { id: number; name: string; price: number }) => void;
-  /** Legacy-якоря (catalog, about, delivery, products) → id элементов. */
+  /** Legacy-якоря (catalog, about, delivery, products, contacts) → id элементов. */
   anchors: Record<string, string | undefined>;
+  contacts: ContactLinks;
 };
 
 type BlockOf<T extends BlockType> = Extract<Block, { type: T }>;
@@ -92,9 +103,11 @@ function renderBlock(id: string, block: Block, ctx: BlockContextValue) {
     case "catalog":
       return <CatalogBlock id={id} block={block} ctx={ctx} />;
     case "products":
-      return <ProductsBlock id={id} ctx={ctx} />;
+      return <ProductsBlock id={id} block={block} ctx={ctx} />;
     case "delivery":
       return <DeliveryBlock id={id} block={block} />;
+    case "contacts":
+      return <ContactsBlock id={id} block={block} ctx={ctx} />;
     default:
       return null;
   }
@@ -115,11 +128,71 @@ function CoverBlock({
   const target = isAnchor
     ? (ctx.anchors[link.slice(1)] ?? link.slice(1))
     : link;
+  const button =
+    data.buttonText && link !== "" ? (
+      isAnchor ? (
+        <button className="btn" onClick={() => scrollToId(target)}>
+          {data.buttonText}
+        </button>
+      ) : (
+        <a className="btn" href={link}>
+          {data.buttonText}
+        </a>
+      )
+    ) : null;
+
+  // Без главного фото — прежняя центрированная обложка (совместимость).
+  if (!data.image) {
+    return (
+      <section
+        className={`hero block-cover${data.backgroundImage ? " has-bg" : ""}${
+          data.align === "left" ? " align-left" : ""
+        }`}
+        id={id}
+        style={
+          data.backgroundImage
+            ? { backgroundImage: `url(${data.backgroundImage})` }
+            : undefined
+        }
+      >
+        {data.backgroundImage && <div className="cover-overlay" />}
+        <div className="cover-content">
+          {data.eyebrow && <div className="cover-eyebrow">{data.eyebrow}</div>}
+          <h1>{data.title}</h1>
+          {data.text && <p>{data.text}</p>}
+          {button}
+          {data.features && data.features.length > 0 && (
+            <div className="hero-features">
+              {data.features.map((feature, index) => (
+                <div className="hero-feature" key={index}>
+                  <span className="hero-feature-icon">
+                    <Icon name={feature.icon} size={20} />
+                  </span>
+                  <span>{feature.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const imageLeft = data.imagePosition === "left";
+  const photo = (
+    <div className="hero-photo">
+      <div className="hero-photo-frame">
+        <img src={data.image} alt={data.title} fetchPriority="high" />
+      </div>
+      <LeafDecor className="hero-leaf hero-leaf-top" />
+      <LeafDecor className="hero-leaf hero-leaf-bottom" />
+    </div>
+  );
 
   return (
     <section
-      className={`hero block-cover${data.backgroundImage ? " has-bg" : ""}${
-        data.align === "left" ? " align-left" : ""
+      className={`hero hero-split${imageLeft ? " image-left" : ""}${
+        data.backgroundImage ? " has-bg" : ""
       }`}
       id={id}
       style={
@@ -129,20 +202,26 @@ function CoverBlock({
       }
     >
       {data.backgroundImage && <div className="cover-overlay" />}
-      <div className="cover-content">
-        <h1>{data.title}</h1>
-        {data.text && <p>{data.text}</p>}
-        {data.buttonText &&
-          link !== "" &&
-          (isAnchor ? (
-            <button className="btn" onClick={() => scrollToId(target)}>
-              {data.buttonText}
-            </button>
-          ) : (
-            <a className="btn" href={link}>
-              {data.buttonText}
-            </a>
-          ))}
+      <div className="hero-inner">
+        <div className="hero-text">
+          {data.eyebrow && <div className="cover-eyebrow">{data.eyebrow}</div>}
+          <h1>{data.title}</h1>
+          {data.text && <p>{data.text}</p>}
+          {button}
+          {data.features && data.features.length > 0 && (
+            <div className="hero-features">
+              {data.features.map((feature, index) => (
+                <div className="hero-feature" key={index}>
+                  <span className="hero-feature-icon">
+                    <Icon name={feature.icon} size={20} />
+                  </span>
+                  <span>{feature.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {photo}
       </div>
     </section>
   );
@@ -294,18 +373,36 @@ function StepsBlock({ id, block }: { id: string; block: BlockOf<"steps"> }) {
 
 function AboutBlock({ id, block }: { id: string; block: BlockOf<"about"> }) {
   const { data } = block;
+  const features = data.features ?? [];
   return (
     <section className="about" id={id}>
       <div className="about-inner">
-        <div>
+        <div className="about-text">
           <h2>{data.title}</h2>
           {paragraphs(data.text).map((para, index) => (
             <p key={index}>{para}</p>
           ))}
+          {features.length > 0 && (
+            <div className="about-features">
+              {features.map((feature, index) => (
+                <div className="about-feature" key={index}>
+                  <div className="about-feature-title">{feature.title}</div>
+                  <p>{feature.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.quote && (
+            <blockquote className="about-quote">«{data.quote}»</blockquote>
+          )}
         </div>
         {data.image && (
           <div className="about-photo">
             <img src={data.image} alt={data.title} loading="lazy" />
+            <LeafDecor className="about-leaf" />
+            {data.caption && (
+              <div className="about-caption">{data.caption}</div>
+            )}
           </div>
         )}
       </div>
@@ -323,43 +420,76 @@ function CatalogBlock({
   ctx: BlockContextValue;
 }) {
   const { data } = block;
+  const columns = data.columns ?? 4;
   return (
     <section className="collections" id={id}>
       <h2 className="section-title">{data.title}</h2>
-      <div className="collections-grid">
+      {data.text && <p className="section-subtitle">{data.text}</p>}
+      <div className={`collections-grid cols-${columns}`}>
         {ctx.collections.map(collection => (
-          <button
-            key={collection.id}
-            className="collection-card"
-            onClick={() => {
-              ctx.onSelectCollection(collection.slug);
-              scrollToId(ctx.anchors["products"]);
-            }}
-          >
-            {collection.coverImage && (
-              <img
-                src={collection.coverImage}
-                alt={collection.title}
-                loading="lazy"
-              />
-            )}
-            <span className="collection-label">{collection.title}</span>
-          </button>
+          <div className="collection-card" key={collection.id}>
+            <button
+              className="collection-card-inner"
+              onClick={() => {
+                ctx.onSelectCollection(collection.slug);
+                scrollToId(ctx.anchors["products"]);
+              }}
+              aria-label={`Показать товары: ${collection.title}`}
+            >
+              <span className="collection-photo">
+                {collection.coverImage && (
+                  <img
+                    src={collection.coverImage}
+                    alt={collection.title}
+                    loading="lazy"
+                  />
+                )}
+              </span>
+              <span className="collection-label">{collection.title}</span>
+              {collection.description && (
+                <span className="collection-desc">
+                  {collection.description}
+                </span>
+              )}
+              <span className="collection-cta">Смотреть →</span>
+            </button>
+          </div>
         ))}
       </div>
     </section>
   );
 }
 
-function ProductsBlock({ id, ctx }: { id: string; ctx: BlockContextValue }) {
-  const slug = ctx.activeSlug ?? ctx.collections[0]?.slug ?? null;
+function ProductsBlock({
+  id,
+  block,
+  ctx,
+}: {
+  id: string;
+  block: BlockOf<"products">;
+  ctx: BlockContextValue;
+}) {
+  const slug = ctx.activeSlug;
   const activeCollection = ctx.collections.find(item => item.slug === slug);
-  const visible = ctx.products.filter(
-    product => product.collectionId === activeCollection?.id
-  );
+  const visible = activeCollection
+    ? ctx.products.filter(
+        product => product.collectionId === activeCollection.id
+      )
+    : ctx.products;
+  const heading = activeCollection?.title || block.data.title || "Наши изделия";
   return (
     <section className="products" id={id}>
+      <h2 className="section-title">{heading}</h2>
+      {activeCollection?.description && (
+        <p className="section-subtitle">{activeCollection.description}</p>
+      )}
       <div className="tabs">
+        <button
+          className={`tab ${slug === null ? "active" : ""}`}
+          onClick={() => ctx.onSelectCollection(null)}
+        >
+          Все категории
+        </button>
         {ctx.collections.map(collection => (
           <button
             key={collection.id}
@@ -379,15 +509,10 @@ function ProductsBlock({ id, ctx }: { id: string; ctx: BlockContextValue }) {
           />
         ))}
         {visible.length === 0 && (
-          <p
-            style={{
-              gridColumn: "1 / -1",
-              textAlign: "center",
-              color: "var(--text-soft)",
-              padding: "40px 0",
-            }}
-          >
-            В этой коллекции пока пусто
+          <p className="products-empty">
+            {activeCollection
+              ? "В этой категории пока пусто"
+              : "Товары скоро появятся"}
           </p>
         )}
       </div>
@@ -403,12 +528,96 @@ function DeliveryBlock({
   block: BlockOf<"delivery">;
 }) {
   const { data } = block;
+  const cards = data.cards ?? [];
   return (
     <section className="delivery" id={id}>
-      <h2>{data.title}</h2>
-      {paragraphs(data.text).map((para, index) => (
-        <p key={index}>{para}</p>
-      ))}
+      <div className="delivery-inner">
+        <div className="delivery-text">
+          <h2>{data.title}</h2>
+          {paragraphs(data.text).map((para, index) => (
+            <p key={index}>{para}</p>
+          ))}
+        </div>
+        {data.image && (
+          <div className="delivery-photo">
+            <img src={data.image} alt={data.title} loading="lazy" />
+          </div>
+        )}
+      </div>
+      {cards.length > 0 && (
+        <div className="delivery-cards">
+          {cards.map((card, index) => (
+            <div className="delivery-card" key={index}>
+              <span className="delivery-card-icon">
+                <Icon name={card.icon} size={22} />
+              </span>
+              <div className="delivery-card-title">{card.title}</div>
+              <p>{card.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ContactsBlock({
+  id,
+  block,
+  ctx,
+}: {
+  id: string;
+  block: BlockOf<"contacts">;
+  ctx: BlockContextValue;
+}) {
+  const { data } = block;
+  const links = [
+    { href: ctx.contacts.telegram, label: "Telegram" },
+    { href: ctx.contacts.whatsapp, label: "WhatsApp" },
+    { href: ctx.contacts.vk, label: "ВКонтакте" },
+    {
+      href: ctx.contacts.email ? `mailto:${ctx.contacts.email}` : "",
+      label: ctx.contacts.email,
+    },
+  ].filter(link => link.href && link.label);
+  return (
+    <section className="contacts" id={id}>
+      <div className="contacts-inner">
+        <div className="contacts-text">
+          {data.title && <h2>{data.title}</h2>}
+          {data.text &&
+            paragraphs(data.text).map((para, index) => (
+              <p key={index}>{para}</p>
+            ))}
+          {links.length > 0 && (
+            <div className="contacts-buttons">
+              {links.map(link => (
+                <a
+                  className="btn btn-contact"
+                  key={link.label}
+                  href={link.href}
+                  target={
+                    link.href.startsWith("mailto:") ? undefined : "_blank"
+                  }
+                  rel="noopener"
+                >
+                  {link.label}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+        {data.image && (
+          <div className="contacts-photo">
+            <img
+              src={data.image}
+              alt={data.title ?? "Контакты"}
+              loading="lazy"
+            />
+            <LeafDecor className="contacts-leaf" />
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -436,7 +645,12 @@ function ProductCard({
       </div>
       <div className="card-body">
         <div className="card-name">{product.name}</div>
-        <div className="card-material">{product.material}</div>
+        {product.material && (
+          <div className="card-material">{product.material}</div>
+        )}
+        <div className="card-price">
+          {product.price.toLocaleString("ru-RU")} ₽
+        </div>
         <button
           className={`card-buy ${added ? "added" : ""}`}
           onClick={() => {
@@ -444,8 +658,9 @@ function ProductCard({
             setAdded(true);
             setTimeout(() => setAdded(false), 1200);
           }}
+          aria-label={`Добавить «${product.name}» в корзину`}
         >
-          {added ? "Добавлено ✓" : `${product.price.toLocaleString("ru-RU")} ₽`}
+          {added ? "Добавлено ✓" : "В корзину"}
         </button>
       </div>
     </div>

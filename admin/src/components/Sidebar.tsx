@@ -13,6 +13,8 @@ import {
   ExternalLink,
   ShieldCheck,
   RefreshCw,
+  Palette,
+  Eye,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,8 @@ const NAV_BASE = [
   { to: "/builder", label: "Конструктор", icon: LayoutTemplate },
   { to: "/orders", label: "Заказы", icon: ShoppingCart },
   { to: "/content", label: "Тексты и контакты", icon: FileText },
+  { to: "/design", label: "Дизайн сайта", icon: Palette },
+  { to: "/preview", label: "Предпросмотр", icon: Eye },
 ];
 
 export function Sidebar() {

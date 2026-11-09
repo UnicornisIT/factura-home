@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { imageUrl, httpsUrl } from "./validation";
 import {
   BLOCK_TYPES,
+  ICON_KEYS,
   MAX_DATA_JSON_LENGTH,
   blockDefaults,
   type BlockType,
@@ -11,6 +12,11 @@ import {
 
 const align = z.enum(["left", "center"]);
 const columns = z.union([z.literal(2), z.literal(3), z.literal(4)]);
+const iconKey = z.enum(ICON_KEYS);
+const iconFeature = z.object({
+  icon: iconKey,
+  title: z.string().max(120),
+});
 
 /** Якорь (#…), относительный путь (/…) или HTTPS-ссылка. */
 const safeLink = z
@@ -51,6 +57,10 @@ export const blockDataSchemas = {
     buttonLink: safeLink,
     backgroundImage: imageUrl,
     align,
+    eyebrow: z.string().max(200).optional(),
+    image: imageUrl.optional(),
+    imagePosition: z.enum(["left", "right"]).optional(),
+    features: z.array(iconFeature).max(4).optional(),
   }),
   text: z.object({
     title: z.string().max(255),
@@ -109,12 +119,34 @@ export const blockDataSchemas = {
     title: z.string().max(255),
     text: z.string().max(20000),
     image: imageUrl,
+    caption: z.string().max(200).optional(),
+    quote: z.string().max(600).optional(),
+    features: z
+      .array(
+        z.object({ title: z.string().max(120), text: z.string().max(600) })
+      )
+      .max(6)
+      .optional(),
   }),
-  catalog: z.object({ title: z.string().max(255) }),
-  products: z.object({}),
+  catalog: z.object({
+    title: z.string().max(255),
+    text: z.string().max(2000).optional(),
+    columns: columns.optional(),
+  }),
+  products: z.object({ title: z.string().max(255).optional() }),
   delivery: z.object({
     title: z.string().max(255),
     text: z.string().max(8000),
+    image: imageUrl.optional(),
+    cards: z
+      .array(iconFeature.extend({ text: z.string().max(600) }))
+      .max(6)
+      .optional(),
+  }),
+  contacts: z.object({
+    title: z.string().max(255).optional(),
+    text: z.string().max(4000).optional(),
+    image: imageUrl.optional(),
   }),
 } satisfies Record<BlockType, z.ZodType>;
 

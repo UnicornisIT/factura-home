@@ -35,4 +35,57 @@ describe("content queries (SQLite)", () => {
     const updated = await updateSiteContent({ aboutTitle: "Наша история" });
     expect(updated.aboutTitle).toBe("Наша история");
   });
+
+  it("returns design defaults and parsed navItems on a fresh row", async () => {
+    await seedSiteContent();
+    const c = await getSiteContent();
+    expect(c.navItems).toEqual([]);
+    expect(c.design.colors.accent).toBe("#831C25");
+    expect(c.design.fonts.heading).toBe("cormorant");
+    expect(c.showShopName).toBe(true);
+    expect(c.vk).toBe("");
+  });
+
+  it("round-trips navItems and design settings", async () => {
+    await seedSiteContent();
+    const design = (await getSiteContent()).design;
+    await updateSiteContent({
+      navItems: [
+        { label: "Каталог", anchor: "#catalog", visible: true },
+        { label: "Доставка", anchor: "#delivery", visible: false },
+      ],
+      design: { ...design, radius: 8, density: "airy" },
+      vk: "https://vk.com/club1",
+      footerText: "ИП Иванова",
+      logoImage: "/uploads/logo.webp",
+      showShopName: false,
+    });
+    const c = await getSiteContent();
+    expect(c.navItems).toEqual([
+      { label: "Каталог", anchor: "#catalog", visible: true },
+      { label: "Доставка", anchor: "#delivery", visible: false },
+    ]);
+    expect(c.design.radius).toBe(8);
+    expect(c.design.density).toBe("airy");
+    expect(c.vk).toBe("https://vk.com/club1");
+    expect(c.footerText).toBe("ИП Иванова");
+    expect(c.logoImage).toBe("/uploads/logo.webp");
+    expect(c.showShopName).toBe(false);
+  });
+
+  it("replaces corrupted navJson and designJson with defaults", async () => {
+    await seedSiteContent();
+    await updateSiteContent({
+      navItems: [{ label: "Каталог", anchor: "#catalog", visible: true }],
+    });
+    const { getDb } = await import("../api/queries/connection");
+    const { siteContent } = await import("@db/schema");
+    await getDb().update(siteContent).set({
+      navJson: "{не json",
+      designJson: "[1,2,3]",
+    });
+    const c = await getSiteContent();
+    expect(c.navItems).toEqual([]);
+    expect(c.design.colors.background).toBe("#F8F0E8");
+  });
 });

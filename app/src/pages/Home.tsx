@@ -1,12 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { trpc } from "@/providers/trpc";
 import {
   BlockRenderer,
   blockElementId,
   type BlockContextValue,
 } from "@/components/blocks/BlockRenderer";
+import { designCssVars } from "@contracts/design";
 
 type CartItem = { productId: number; name: string; price: number; qty: number };
+
+const CART_ICON = (
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" />
+    <path d="M3 6h18" />
+    <path d="M16 10a4 4 0 0 1-8 0" />
+  </svg>
+);
 
 export default function Home() {
   const { data: content } = trpc.content.get.useQuery();
@@ -50,6 +69,7 @@ export default function Home() {
   };
 
   const visibleBlocks = useMemo(() => blocks ?? [], [blocks]);
+  const design = content?.design;
 
   // Якоря навигации: legacy-имена разделов → id соответствующих блоков.
   const anchors = useMemo(() => {
@@ -59,11 +79,19 @@ export default function Home() {
       if (block.type === "catalog") map["catalog"] ??= blockElementId(block);
       if (block.type === "delivery") map["delivery"] ??= blockElementId(block);
       if (block.type === "products") map["products"] ??= blockElementId(block);
+      if (block.type === "contacts") map["contacts"] ??= blockElementId(block);
     }
     return map;
   }, [visibleBlocks]);
 
+  // Меню: пункты из настроек админки, иначе автоматически из блоков.
   const navLinks = useMemo(() => {
+    const custom = (content?.navItems ?? []).filter(item => item.visible);
+    if (custom.length > 0)
+      return custom.map(item => ({
+        href: item.anchor,
+        label: item.label,
+      }));
     const links: { href: string; label: string }[] = [];
     for (const block of visibleBlocks) {
       if (block.type === "about")
@@ -82,17 +110,41 @@ export default function Home() {
           label: block.data.title || "Доставка",
         });
     }
-    links.push({ href: "#contacts", label: "Контакты" });
+    links.push({
+      href: anchors["contacts"] ? `#${anchors["contacts"]}` : "#contacts",
+      label: "Контакты",
+    });
     return links;
-  }, [visibleBlocks]);
+  }, [content, visibleBlocks, anchors]);
+
+  // Якорь пункта меню → id элемента: legacy-имена через карту anchors,
+  // прямые #block-N — как есть.
+  const resolveAnchor = (href: string): string => {
+    if (!href.startsWith("#")) return href;
+    const name = href.slice(1);
+    const mapped = anchors[name];
+    return mapped ? `#${mapped}` : href;
+  };
 
   const blockContext: BlockContextValue = {
-    collections: collections ?? [],
+    collections: (collections ?? []).map(collection => ({
+      id: collection.id,
+      slug: collection.slug,
+      title: collection.title,
+      description: collection.description ?? "",
+      coverImage: collection.coverImage,
+    })),
     products: products ?? [],
     activeSlug,
     onSelectCollection: setActiveSlug,
     onAddToCart: addToCart,
     anchors,
+    contacts: {
+      telegram: content?.telegram ?? "",
+      whatsapp: content?.whatsapp ?? "",
+      vk: content?.vk ?? "",
+      email: content?.email ?? "",
+    },
   };
 
   useEffect(() => {
@@ -104,18 +156,37 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
+  const cssVars = (design ? designCssVars(design) : {}) as CSSProperties;
+  const rootClass = [
+    "landing",
+    design?.archPhotos === false ? "" : "arch-photos",
+    design?.decorLeaves === false ? "" : "decor-leaves",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const showShopName = content?.showShopName !== false;
+
   return (
-    <div style={{ background: "var(--cream)", minHeight: "100vh" }}>
+    <div className={rootClass} style={{ ...cssVars, minHeight: "100vh" }}>
       {/* Шапка */}
-      <header className="header">
+      <header
+        className={`header${design && !design.headerSticky ? " static" : ""}`}
+      >
         <a className="logo" href="#top">
-          {content?.shopName ?? "Глиняная мастерская"}
+          {content?.logoImage && (
+            <img src={content.logoImage} alt="" className="logo-img" />
+          )}
+          {showShopName && (
+            <span className="logo-text">
+              {content?.shopName ?? "Глиняная мастерская"}
+            </span>
+          )}
         </a>
         <nav className={`nav ${menuOpen ? "open" : ""}`}>
           {navLinks.map(link => (
             <a
-              key={link.href}
-              href={link.href}
+              key={`${link.href}-${link.label}`}
+              href={resolveAnchor(link.href)}
               onClick={() => setMenuOpen(false)}
             >
               {link.label}
@@ -123,8 +194,13 @@ export default function Home() {
           ))}
         </nav>
         <div className="header-actions">
-          <button className="cart-btn" onClick={() => setCartOpen(true)}>
-            Корзина
+          <button
+            className="cart-btn"
+            onClick={() => setCartOpen(true)}
+            aria-label={`Корзина, товаров: ${cartCount}`}
+          >
+            {CART_ICON}
+            <span className="cart-btn-label">Корзина</span>
             {cartCount > 0 && (
               <span className="cart-count visible">{cartCount}</span>
             )}
@@ -150,7 +226,10 @@ export default function Home() {
       ))}
 
       {/* Футер */}
-      <footer className="footer" id="contacts">
+      <footer
+        className="footer"
+        id={anchors["contacts"] ? undefined : "contacts"}
+      >
         <div className="footer-inner">
           <div className="footer-cta">{content?.footerCta}</div>
           <div className="footer-links">
@@ -164,10 +243,18 @@ export default function Home() {
                 WhatsApp
               </a>
             )}
+            {content?.vk && (
+              <a href={content.vk} target="_blank" rel="noopener">
+                ВКонтакте
+              </a>
+            )}
             {content?.email && (
               <a href={`mailto:${content.email}`}>{content.email}</a>
             )}
           </div>
+          {content?.footerText && (
+            <div className="footer-text">{content.footerText}</div>
+          )}
         </div>
       </footer>
 

@@ -18,15 +18,58 @@ export const BLOCK_TYPES = [
   "catalog",
   "products",
   "delivery",
+  "contacts",
 ] as const;
 
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
 /** Блоки, которые рендерят данные из других таблиц и не дублируются. */
-export const SINGLETON_BLOCK_TYPES: BlockType[] = ["catalog", "products"];
+export const SINGLETON_BLOCK_TYPES: BlockType[] = [
+  "catalog",
+  "products",
+  "contacts",
+];
+
+/**
+ * Безопасный набор иконок для преимуществ и информационных карточек.
+ * Витрина рисует их встроенным SVG, админка — через lucide-react.
+ */
+export const ICON_KEYS = [
+  "leaf",
+  "gift",
+  "truck",
+  "clock",
+  "hand",
+  "heart",
+  "star",
+  "shield",
+  "box",
+  "card",
+  "flame",
+  "sparkle",
+] as const;
+
+export type IconKey = (typeof ICON_KEYS)[number];
+
+export const ICON_LABELS: Record<IconKey, string> = {
+  leaf: "Лист",
+  gift: "Подарок",
+  truck: "Доставка",
+  clock: "Время",
+  hand: "Рука",
+  heart: "Сердце",
+  star: "Звезда",
+  shield: "Щит",
+  box: "Упаковка",
+  card: "Карта",
+  flame: "Пламя",
+  sparkle: "Блеск",
+};
 
 export const MAX_BLOCKS = 60;
 export const MAX_DATA_JSON_LENGTH = 60_000;
+
+export type IconFeature = { icon: IconKey; title: string };
 
 export type CoverData = {
   title: string;
@@ -36,6 +79,12 @@ export type CoverData = {
   buttonLink: string;
   backgroundImage: string;
   align: "left" | "center";
+  /** Необязательные поля расширения (старые сохранённые блоки их не имеют). */
+  eyebrow?: string;
+  /** Главное фото в арочной форме; без него обложка центрируется по-старому. */
+  image?: string;
+  imagePosition?: "left" | "right";
+  features?: IconFeature[];
 };
 
 export type TextData = {
@@ -91,13 +140,39 @@ export type AboutData = {
   title: string;
   text: string;
   image: string;
+  /** Подпись к фотографии процесса. */
+  caption?: string;
+  /** Декоративная цитата под текстом. */
+  quote?: string;
+  features?: FeatureItem[];
 };
 
-export type TitleOnlyData = { title: string };
+export type CatalogData = {
+  title: string;
+  /** Короткое описание под заголовком. */
+  text?: string;
+  columns?: 2 | 3 | 4;
+};
 
-export type DeliveryData = { title: string; text: string };
+export type DeliveryData = {
+  title: string;
+  text: string;
+  /** Фотография упаковки/процесса отправки. */
+  image?: string;
+  /** Информационные карточки: упаковка, доставка, оплата, сроки. */
+  cards?: (IconFeature & { text: string })[];
+};
 
-export type ProductsData = Record<string, never>;
+export type ContactsData = {
+  title?: string;
+  text?: string;
+  image?: string;
+};
+
+export type ProductsData = {
+  /** Заголовок секции; при активном фильтре заменяется названием категории. */
+  title?: string;
+};
 
 export type BlockDataMap = {
   cover: CoverData;
@@ -109,9 +184,10 @@ export type BlockDataMap = {
   faq: FaqData;
   steps: StepsData;
   about: AboutData;
-  catalog: TitleOnlyData;
+  catalog: CatalogData;
   products: ProductsData;
   delivery: DeliveryData;
+  contacts: ContactsData;
 };
 
 export type BlockData = BlockDataMap[keyof BlockDataMap];
@@ -164,14 +240,22 @@ export const BLOCK_LIBRARY: BlockLibraryEntry[] = [
   {
     type: "cover",
     label: "Обложка",
-    description: "Большой заголовок, текст и кнопка, опционально фон",
+    description: "Первый экран: заголовок, текст, кнопка и фото в арке",
     defaults: {
-      title: "Новый заголовок",
-      text: "Короткое описание поверх обложки.",
-      buttonText: "Подробнее",
-      buttonLink: "#contacts",
+      eyebrow: "Маленькие детали. Особенная атмосфера.",
+      title: "Декор для дома ручной работы",
+      text: "Керамика, свечи и уютные мелочи, созданные вручную в нашей мастерской.",
+      buttonText: "Смотреть коллекцию",
+      buttonLink: "#catalog",
       backgroundImage: "",
-      align: "center",
+      align: "left",
+      image: "",
+      imagePosition: "right",
+      features: [
+        { icon: "hand", title: "Ручная работа" },
+        { icon: "leaf", title: "Натуральные материалы" },
+        { icon: "gift", title: "Уютный подарок" },
+      ],
     },
   },
   {
@@ -247,26 +331,53 @@ export const BLOCK_LIBRARY: BlockLibraryEntry[] = [
   {
     type: "about",
     label: "О мастерской",
-    description: "Тёмная секция: текст слева, фото справа",
-    defaults: { title: "О мастерской", text: "", image: "" },
+    description: "Текст и фото процесса, преимущества и цитата",
+    defaults: {
+      title: "О мастерской",
+      text: "",
+      image: "",
+      caption: "",
+      quote: "",
+      features: [],
+    },
   },
   {
     type: "catalog",
     label: "Каталог коллекций",
     description: "Обложки коллекций из раздела «Коллекции» (один на сайт)",
-    defaults: { title: "Каталог" },
+    defaults: { title: "Каталог", text: "", columns: 4 },
   },
   {
     type: "products",
     label: "Товары",
-    description: "Вкладки коллекций и карточки товаров (один на сайт)",
-    defaults: {},
+    description: "Фильтры коллекций и карточки товаров (один на сайт)",
+    defaults: { title: "" },
   },
   {
     type: "delivery",
     label: "Доставка",
-    description: "Центрированный блок об условиях доставки",
-    defaults: { title: "Доставка по всей России", text: "" },
+    description: "Условия доставки: фото и информационные карточки",
+    defaults: {
+      title: "Доставка по всей России",
+      text: "",
+      image: "",
+      cards: [
+        { icon: "box", title: "Упаковка", text: "Три слоя крафта и стружки." },
+        { icon: "truck", title: "Доставка", text: "СДЭК или Почта России." },
+        { icon: "card", title: "Оплата", text: "Перевод после подтверждения." },
+        { icon: "clock", title: "Сроки", text: "Отправляем за 2–3 дня." },
+      ],
+    },
+  },
+  {
+    type: "contacts",
+    label: "Контакты",
+    description: "Кнопки Telegram, WhatsApp, ВКонтакте и email (один на сайт)",
+    defaults: {
+      title: "Остались вопросы?",
+      text: "Напишите нам удобным способом — ответим в течение дня.",
+      image: "",
+    },
   },
 ];
 

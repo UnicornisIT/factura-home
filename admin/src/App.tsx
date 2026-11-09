@@ -5,6 +5,8 @@ import Collections from "@/pages/Collections";
 import Builder from "@/pages/Builder";
 import Orders from "@/pages/Orders";
 import Content from "@/pages/Content";
+import Design from "@/pages/Design";
+import Preview from "@/pages/Preview";
 import Access from "@/pages/Access";
 import ServerUpdate from "@/pages/ServerUpdate";
 import Login from "@/pages/Login";
@@ -24,6 +26,8 @@ export default function App() {
       <Route path="/builder" element={<Builder />} />
       <Route path="/orders" element={<Orders />} />
       <Route path="/content" element={<Content />} />
+      <Route path="/design" element={<Design />} />
+      <Route path="/preview" element={<Preview />} />
       <Route path="/access" element={<Access />} />
       <Route path="/server-update" element={<ServerUpdate />} />
 

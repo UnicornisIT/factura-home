@@ -6,21 +6,59 @@ import type {
   AboutData,
   Block,
   BlockData,
+  CatalogData,
+  ContactsData,
   CoverData,
   DeliveryData,
   FaqData,
   FeaturesData,
   GalleryData,
+  IconKey,
   ImageData,
+  ProductsData,
   StepsData,
   TextData,
-  TitleOnlyData,
   VideoData,
 } from "@contracts/blocks";
-import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
+import { ICON_KEYS, ICON_LABELS } from "@contracts/blocks";
+import {
+  ArrowDown,
+  ArrowUp,
+  CreditCard,
+  Clock,
+  Flame,
+  Gift,
+  Hand,
+  Heart,
+  Leaf,
+  Package,
+  Shield,
+  Sparkles,
+  Star,
+  Trash2,
+  Truck,
+} from "lucide-react";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm";
+
+const ICON_COMPONENTS: Record<
+  IconKey,
+  React.ComponentType<{ className?: string }>
+> = {
+  leaf: Leaf,
+  gift: Gift,
+  truck: Truck,
+  clock: Clock,
+  hand: Hand,
+  heart: Heart,
+  star: Star,
+  shield: Shield,
+  box: Package,
+  card: CreditCard,
+  flame: Flame,
+  sparkle: Sparkles,
+};
 
 function Field({
   label,
@@ -66,6 +104,44 @@ function ImageField({
   );
 }
 
+/** Выбор иконки из безопасного набора контракта. */
+function IconPicker({
+  value,
+  onChange,
+}: {
+  value: IconKey;
+  onChange: (value: IconKey) => void;
+}) {
+  return (
+    <div>
+      <Label>Иконка</Label>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {ICON_KEYS.map((key) => {
+          const IconCmp = ICON_COMPONENTS[key];
+          const active = key === value;
+          return (
+            <button
+              key={key}
+              type="button"
+              title={ICON_LABELS[key]}
+              aria-label={ICON_LABELS[key]}
+              aria-pressed={active}
+              onClick={() => onChange(key)}
+              className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${
+                active
+                  ? "border-[#831C25] bg-[#831C25]/10 text-[#831C25]"
+                  : "border-slate-200 text-slate-500 hover:border-slate-400"
+              }`}
+            >
+              <IconCmp className="h-4 w-4" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Редактор списка однотипных элементов (плитка, этапы, FAQ, галерея). */
 function ItemsEditor<T>({
   items,
@@ -73,11 +149,13 @@ function ItemsEditor<T>({
   addLabel,
   render,
   max,
+  defaults,
 }: {
   items: T[];
   onChange: (items: T[]) => void;
   addLabel: string;
   max: number;
+  defaults?: T;
   render: (item: T, set: (next: T) => void) => React.ReactNode;
 }) {
   const move = (index: number, delta: number) => {
@@ -141,7 +219,7 @@ function ItemsEditor<T>({
         variant="outline"
         size="sm"
         disabled={items.length >= max}
-        onClick={() => onChange([...items, {} as T])}
+        onClick={() => onChange([...items, defaults ?? ({} as T)])}
       >
         + {addLabel}
       </Button>
@@ -158,8 +236,16 @@ function CoverForm({
 }) {
   const set = <K extends keyof CoverData>(key: K, value: CoverData[K]) =>
     onChange({ ...data, [key]: value });
+  const features = data.features ?? [];
   return (
     <div className="grid gap-4">
+      <Field label="Надпись над заголовком (необязательно)">
+        <Input
+          value={data.eyebrow ?? ""}
+          onChange={(e) => set("eyebrow", e.target.value)}
+          placeholder="Маленькие детали. Особенная атмосфера."
+        />
+      </Field>
       <Field label="Заголовок">
         <Input
           value={data.title}
@@ -189,19 +275,60 @@ function CoverForm({
         </Field>
       </div>
       <ImageField
+        label="Главное фото (арочная форма; необязательно)"
+        value={data.image ?? ""}
+        onChange={(image) => set("image", image)}
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Позиция главного фото">
+          <select
+            className={selectClass}
+            value={data.imagePosition ?? "right"}
+            onChange={(e) =>
+              set("imagePosition", e.target.value as "left" | "right")
+            }
+          >
+            <option value="right">Справа</option>
+            <option value="left">Слева</option>
+          </select>
+        </Field>
+        <Field label="Выравнивание (без главного фото)">
+          <select
+            className={selectClass}
+            value={data.align}
+            onChange={(e) => set("align", e.target.value as CoverData["align"])}
+          >
+            <option value="center">По центру</option>
+            <option value="left">Слева</option>
+          </select>
+        </Field>
+      </div>
+      <ImageField
         label="Фоновое изображение (необязательно)"
         value={data.backgroundImage}
         onChange={(backgroundImage) => set("backgroundImage", backgroundImage)}
       />
-      <Field label="Выравнивание">
-        <select
-          className={selectClass}
-          value={data.align}
-          onChange={(e) => set("align", e.target.value as CoverData["align"])}
-        >
-          <option value="center">По центру</option>
-          <option value="left">Слева</option>
-        </select>
+      <Field label="Преимущества под текстом (до 4)">
+        <ItemsEditor
+          items={features}
+          onChange={(items) => set("features", items)}
+          addLabel="Добавить преимущество"
+          max={4}
+          defaults={{ icon: "leaf" as IconKey, title: "" }}
+          render={(item, setItem) => (
+            <div className="grid gap-2">
+              <IconPicker
+                value={item.icon ?? "leaf"}
+                onChange={(icon) => setItem({ ...item, icon })}
+              />
+              <Input
+                value={item.title ?? ""}
+                onChange={(e) => setItem({ ...item, title: e.target.value })}
+                placeholder="Ручная работа"
+              />
+            </div>
+          )}
+        />
       </Field>
     </div>
   );
@@ -525,6 +652,7 @@ function AboutForm({
 }) {
   const set = <K extends keyof AboutData>(key: K, value: AboutData[K]) =>
     onChange({ ...data, [key]: value });
+  const features = data.features ?? [];
   return (
     <div className="grid gap-4">
       <Field label="Заголовок">
@@ -541,29 +669,117 @@ function AboutForm({
         />
       </Field>
       <ImageField
-        label="Фото (необязательно)"
+        label="Фото процесса (необязательно)"
         value={data.image}
         onChange={(image) => set("image", image)}
       />
+      <Field label="Подпись к фото (необязательно)">
+        <Input
+          value={data.caption ?? ""}
+          onChange={(e) => set("caption", e.target.value)}
+          placeholder="Мастерская, 2026"
+        />
+      </Field>
+      <Field label="Преимущества под текстом (до 6)">
+        <ItemsEditor
+          items={features}
+          onChange={(items) => set("features", items)}
+          addLabel="Добавить преимущество"
+          max={6}
+          defaults={{ title: "", text: "" }}
+          render={(item, setItem) => (
+            <div className="grid gap-2">
+              <Input
+                value={item.title ?? ""}
+                onChange={(e) => setItem({ ...item, title: e.target.value })}
+                placeholder="Вручную"
+              />
+              <Textarea
+                value={item.text ?? ""}
+                onChange={(e) => setItem({ ...item, text: e.target.value })}
+                rows={2}
+                placeholder="Короткое описание"
+              />
+            </div>
+          )}
+        />
+      </Field>
+      <Field label="Декоративная цитата (необязательно)">
+        <Textarea
+          value={data.quote ?? ""}
+          onChange={(e) => set("quote", e.target.value)}
+          rows={2}
+          placeholder="Каждая вещь хранит тепло рук"
+        />
+      </Field>
     </div>
   );
 }
 
-function TitleForm({
+function CatalogForm({
   data,
   onChange,
 }: {
-  data: TitleOnlyData;
-  onChange: (d: TitleOnlyData) => void;
+  data: CatalogData;
+  onChange: (d: CatalogData) => void;
 }) {
+  const set = <K extends keyof CatalogData>(key: K, value: CatalogData[K]) =>
+    onChange({ ...data, [key]: value });
   return (
     <div className="grid gap-4">
       <Field label="Заголовок секции">
         <Input
           value={data.title}
-          onChange={(e) => onChange({ title: e.target.value })}
+          onChange={(e) => set("title", e.target.value)}
         />
       </Field>
+      <Field label="Описание под заголовком (необязательно)">
+        <Textarea
+          value={data.text ?? ""}
+          onChange={(e) => set("text", e.target.value)}
+          rows={2}
+        />
+      </Field>
+      <Field label="Картинок в ряду">
+        <select
+          className={selectClass}
+          value={data.columns ?? 4}
+          onChange={(e) => set("columns", Number(e.target.value) as 2 | 3 | 4)}
+        >
+          <option value={2}>2</option>
+          <option value={3}>3</option>
+          <option value={4}>4</option>
+        </select>
+      </Field>
+      <p className="text-sm text-slate-500">
+        Карточки категорий берутся из раздела «Коллекции»: название, описание,
+        обложка, порядок и видимость настраиваются там.
+      </p>
+    </div>
+  );
+}
+
+function ProductsForm({
+  data,
+  onChange,
+}: {
+  data: ProductsData;
+  onChange: (d: ProductsData) => void;
+}) {
+  return (
+    <div className="grid gap-4">
+      <Field label="Заголовок секции (без активного фильтра)">
+        <Input
+          value={data.title ?? ""}
+          onChange={(e) => onChange({ ...data, title: e.target.value })}
+          placeholder="Наши изделия"
+        />
+      </Field>
+      <p className="text-sm text-slate-500">
+        Фильтры «Все категории» и вкладки коллекций строятся из раздела
+        «Коллекции»; карточки товаров — из раздела «Товары». При выбранной
+        категории заголовок заменяется её названием.
+      </p>
     </div>
   );
 }
@@ -577,6 +793,7 @@ function DeliveryForm({
 }) {
   const set = <K extends keyof DeliveryData>(key: K, value: DeliveryData[K]) =>
     onChange({ ...data, [key]: value });
+  const cards = data.cards ?? [];
   return (
     <div className="grid gap-4">
       <Field label="Заголовок">
@@ -592,6 +809,76 @@ function DeliveryForm({
           rows={6}
         />
       </Field>
+      <ImageField
+        label="Фото упаковки (необязательно)"
+        value={data.image ?? ""}
+        onChange={(image) => set("image", image)}
+      />
+      <Field label="Информационные карточки (до 6)">
+        <ItemsEditor
+          items={cards}
+          onChange={(items) => set("cards", items)}
+          addLabel="Добавить карточку"
+          max={6}
+          defaults={{ icon: "truck" as IconKey, title: "", text: "" }}
+          render={(item, setItem) => (
+            <div className="grid gap-2">
+              <IconPicker
+                value={item.icon ?? "truck"}
+                onChange={(icon) => setItem({ ...item, icon })}
+              />
+              <Input
+                value={item.title ?? ""}
+                onChange={(e) => setItem({ ...item, title: e.target.value })}
+                placeholder="Доставка"
+              />
+              <Textarea
+                value={item.text ?? ""}
+                onChange={(e) => setItem({ ...item, text: e.target.value })}
+                rows={2}
+                placeholder="СДЭК или Почта России"
+              />
+            </div>
+          )}
+        />
+      </Field>
+    </div>
+  );
+}
+
+function ContactsForm({
+  data,
+  onChange,
+}: {
+  data: ContactsData;
+  onChange: (d: ContactsData) => void;
+}) {
+  const set = <K extends keyof ContactsData>(key: K, value: ContactsData[K]) =>
+    onChange({ ...data, [key]: value });
+  return (
+    <div className="grid gap-4">
+      <Field label="Заголовок (необязательно)">
+        <Input
+          value={data.title ?? ""}
+          onChange={(e) => set("title", e.target.value)}
+        />
+      </Field>
+      <Field label="Текст (необязательно)">
+        <Textarea
+          value={data.text ?? ""}
+          onChange={(e) => set("text", e.target.value)}
+          rows={3}
+        />
+      </Field>
+      <ImageField
+        label="Фото изделия (необязательно)"
+        value={data.image ?? ""}
+        onChange={(image) => set("image", image)}
+      />
+      <p className="text-sm text-slate-500">
+        Кнопки Telegram, WhatsApp, ВКонтакте и email строятся из ссылок в
+        разделе «Тексты и контакты»; пустые ссылки не показываются.
+      </p>
     </div>
   );
 }
@@ -626,16 +913,13 @@ export function BlockForm({
     case "about":
       return <AboutForm data={data as AboutData} onChange={onChange} />;
     case "catalog":
-      return <TitleForm data={data as TitleOnlyData} onChange={onChange} />;
+      return <CatalogForm data={data as CatalogData} onChange={onChange} />;
+    case "products":
+      return <ProductsForm data={data as ProductsData} onChange={onChange} />;
     case "delivery":
       return <DeliveryForm data={data as DeliveryData} onChange={onChange} />;
-    case "products":
-      return (
-        <p className="text-sm text-slate-500">
-          Блок «Товары» показывает вкладки коллекций и карточки товаров —
-          содержимое управляется в разделах «Коллекции» и «Товары».
-        </p>
-      );
+    case "contacts":
+      return <ContactsForm data={data as ContactsData} onChange={onChange} />;
     default:
       return null;
   }
