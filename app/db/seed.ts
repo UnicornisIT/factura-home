@@ -3,12 +3,23 @@ import { getDb, __getSqliteClient } from "../api/queries/connection";
 import { collections, products, siteContent } from "./schema";
 import type { Collection } from "./schema";
 import { ensureOwner } from "../api/queries/admin-allowlist";
+import { ensureDefaultBlocks } from "../api/queries/blocks";
 import { env } from "../api/lib/env";
-import { createSqliteTables } from "./sqlite-ddl";
+import { DDL } from "./sqlite-ddl";
 
-async function ensureSchema() {
-  if (env.dbDialect === "sqlite") {
-    createSqliteTables(__getSqliteClient());
+// Seed может запускаться и на свежей базе, и на уже мигрированной,
+// поэтому ALTER-утверждения с существующим столбцом пропускаются.
+function ensureSchema() {
+  if (env.dbDialect !== "sqlite") return;
+  const client = __getSqliteClient();
+  for (const statement of DDL.split(";")
+    .map(value => value.trim())
+    .filter(Boolean)) {
+    try {
+      client.exec(statement);
+    } catch (error) {
+      if (!String(error).includes("duplicate column name")) throw error;
+    }
   }
 }
 
@@ -103,6 +114,10 @@ async function seed() {
       email: "hello@glina.shop",
     });
   }
+
+  // На свежей базе миграция 002 не находит siteContent и не создаёт блоки —
+  // стартовый набор конструктора добавляется здесь из seeded-текстов.
+  await ensureDefaultBlocks();
 
   process.exit(0);
 }

@@ -2,9 +2,11 @@ import { Routes, Route } from "react-router";
 import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import Collections from "@/pages/Collections";
+import Builder from "@/pages/Builder";
 import Orders from "@/pages/Orders";
 import Content from "@/pages/Content";
 import Access from "@/pages/Access";
+import ServerUpdate from "@/pages/ServerUpdate";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
 
@@ -19,9 +21,11 @@ export default function App() {
       <Route path="/" element={<Dashboard />} />
       <Route path="/products" element={<Products />} />
       <Route path="/collections" element={<Collections />} />
+      <Route path="/builder" element={<Builder />} />
       <Route path="/orders" element={<Orders />} />
       <Route path="/content" element={<Content />} />
       <Route path="/access" element={<Access />} />
+      <Route path="/server-update" element={<ServerUpdate />} />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

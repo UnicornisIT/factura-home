@@ -10,6 +10,9 @@ const config = {
   TELEGRAM_BOT_TOKEN: "test-only-bot-token",
   TELEGRAM_BOT_NAME: "test_bot",
   SUPER_ADMIN_TELEGRAM_ID: "100",
+  // Локальный .env может задавать dev-переменные; пустое значение
+  // не даёт dotenv подставить их в production-проверку.
+  DEV_ADMIN_ORIGIN: "",
 };
 function run(source: string, overrides = {}) {
   return spawnSync(
@@ -41,10 +44,33 @@ describe("production configuration", () => {
       { SUPER_ADMIN_TELEGRAM_ID: "9007199254740992" },
       { DEV_ADMIN_ORIGIN: "http://localhost:3001" },
       { UPLOAD_DIR: "./dist/uploads" },
+      { SERVER_UPDATE_ENABLED: "maybe" },
+      { SERVER_UPDATE_ENABLED: "true" },
+      {
+        SERVER_UPDATE_ENABLED: "true",
+        SERVER_UPDATE_TOKEN: "token",
+        SERVER_UPDATE_SCRIPT: "relative/script.sh",
+      },
+      {
+        SERVER_UPDATE_ENABLED: "true",
+        SERVER_UPDATE_TOKEN: "token",
+        SERVER_UPDATE_REPOSITORY: "not a repo",
+      },
     ]) {
       expect(
         run("await import('./api/lib/env.ts')", overrides).status
       ).not.toBe(0);
     }
+  }, 60000);
+  it("accepts a fully configured server update feature", () => {
+    expect(
+      run("await import('./api/lib/env.ts')", {
+        SERVER_UPDATE_ENABLED: "true",
+        SERVER_UPDATE_TOKEN: "test-only-token",
+        SERVER_UPDATE_REPOSITORY: "UnicornisIT/factura-home",
+        SERVER_UPDATE_SCRIPT: "/usr/local/sbin/glina-update.sh",
+        SERVER_UPDATE_STATUS_PATH: "/var/lib/glina/update-status.json",
+      }).status
+    ).toBe(0);
   }, 60000);
 });

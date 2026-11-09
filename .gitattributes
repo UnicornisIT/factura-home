@@ -1,0 +1,4 @@
+# Bash-скрипты деплоя должны попадать на сервер с LF даже из Windows-чекаута.
+*.sh text eol=lf
+deployment/sudoers-glina-update text eol=lf
+deployment/glina.service text eol=lf

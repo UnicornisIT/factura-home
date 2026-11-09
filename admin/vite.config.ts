@@ -35,6 +35,9 @@ export default defineConfig({
       // Только для type-only импорта AppRouter из ../app/api/router.ts.
       // Vite type-only импорты стирает, поэтому runtime-путей здесь нет.
       "@server": path.resolve(__dirname, "../app"),
+      // Runtime-импорт общей библиотеки блоков конструктора (типизация,
+      // метаданные, значения по умолчанию) из ../app/contracts.
+      "@contracts": path.resolve(__dirname, "../app/contracts"),
     },
   },
   build: {

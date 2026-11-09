@@ -6,11 +6,13 @@ import {
   LayoutDashboard,
   Package,
   FolderTree,
+  LayoutTemplate,
   ShoppingCart,
   FileText,
   LogOut,
   ExternalLink,
   ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -19,6 +21,7 @@ const NAV_BASE = [
   { to: "/", label: "Дэшборд", icon: LayoutDashboard, end: true },
   { to: "/products", label: "Товары", icon: Package },
   { to: "/collections", label: "Коллекции", icon: FolderTree },
+  { to: "/builder", label: "Конструктор", icon: LayoutTemplate },
   { to: "/orders", label: "Заказы", icon: ShoppingCart },
   { to: "/content", label: "Тексты и контакты", icon: FileText },
 ];
@@ -30,11 +33,17 @@ export function Sidebar() {
     retry: false,
   });
 
-  // Только super_admin видит страницу "Доступ" (управление allowlist).
+  // Только super_admin видит страницы "Доступ" и "Обновление сервера".
   const nav = isSuperAdmin
     ? [
         ...NAV_BASE,
         { to: "/access", label: "Доступ", icon: ShieldCheck, end: false },
+        {
+          to: "/server-update",
+          label: "Обновление сервера",
+          icon: RefreshCw,
+          end: false,
+        },
       ]
     : NAV_BASE;
 

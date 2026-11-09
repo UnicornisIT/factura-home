@@ -1,5 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/providers/trpc";
+import {
+  BlockRenderer,
+  blockElementId,
+  type BlockContextValue,
+} from "@/components/blocks/BlockRenderer";
 
 type CartItem = { productId: number; name: string; price: number; qty: number };
 
@@ -7,8 +12,10 @@ export default function Home() {
   const { data: content } = trpc.content.get.useQuery();
   const { data: collections } = trpc.collections.list.useQuery();
   const { data: products } = trpc.products.list.useQuery();
+  const { data: blocks } = trpc.blocks.list.useQuery();
 
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [orderName, setOrderName] = useState("");
@@ -23,13 +30,6 @@ export default function Home() {
       setCart([]);
     },
   });
-
-  const slug = activeSlug ?? collections?.[0]?.slug ?? null;
-  const activeCollection = collections?.find(c => c.slug === slug);
-  const visibleProducts = useMemo(
-    () => (products ?? []).filter(p => p.collectionId === activeCollection?.id),
-    [products, activeCollection]
-  );
 
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
   const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
@@ -49,9 +49,60 @@ export default function Home() {
     });
   };
 
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  const visibleBlocks = useMemo(() => blocks ?? [], [blocks]);
+
+  // Якоря навигации: legacy-имена разделов → id соответствующих блоков.
+  const anchors = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const block of visibleBlocks) {
+      if (block.type === "about") map["about"] ??= blockElementId(block);
+      if (block.type === "catalog") map["catalog"] ??= blockElementId(block);
+      if (block.type === "delivery") map["delivery"] ??= blockElementId(block);
+      if (block.type === "products") map["products"] ??= blockElementId(block);
+    }
+    return map;
+  }, [visibleBlocks]);
+
+  const navLinks = useMemo(() => {
+    const links: { href: string; label: string }[] = [];
+    for (const block of visibleBlocks) {
+      if (block.type === "about")
+        links.push({
+          href: `#${blockElementId(block)}`,
+          label: block.data.title || "О мастерской",
+        });
+      if (block.type === "catalog")
+        links.push({
+          href: `#${blockElementId(block)}`,
+          label: block.data.title || "Каталог",
+        });
+      if (block.type === "delivery")
+        links.push({
+          href: `#${blockElementId(block)}`,
+          label: block.data.title || "Доставка",
+        });
+    }
+    links.push({ href: "#contacts", label: "Контакты" });
+    return links;
+  }, [visibleBlocks]);
+
+  const blockContext: BlockContextValue = {
+    collections: collections ?? [],
+    products: products ?? [],
+    activeSlug,
+    onSelectCollection: setActiveSlug,
+    onAddToCart: addToCart,
+    anchors,
   };
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   return (
     <div style={{ background: "var(--cream)", minHeight: "100vh" }}>
@@ -60,106 +111,43 @@ export default function Home() {
         <a className="logo" href="#top">
           {content?.shopName ?? "Глиняная мастерская"}
         </a>
-        <nav className="nav">
-          <a href="#about">О мастерской</a>
-          <a href="#catalog">Каталог</a>
-          <a href="#delivery">Доставка</a>
-          <a href="#contacts">Контакты</a>
+        <nav className={`nav ${menuOpen ? "open" : ""}`}>
+          {navLinks.map(link => (
+            <a
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+            >
+              {link.label}
+            </a>
+          ))}
         </nav>
-        <button className="cart-btn" onClick={() => setCartOpen(true)}>
-          Корзина
-          {cartCount > 0 && (
-            <span className="cart-count visible">{cartCount}</span>
-          )}
-        </button>
+        <div className="header-actions">
+          <button className="cart-btn" onClick={() => setCartOpen(true)}>
+            Корзина
+            {cartCount > 0 && (
+              <span className="cart-count visible">{cartCount}</span>
+            )}
+          </button>
+          <button
+            className={`burger ${menuOpen ? "open" : ""}`}
+            aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen(open => !open)}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+        </div>
       </header>
 
-      {/* Hero */}
-      <section className="hero" id="top">
-        <h1>{content?.heroTitle}</h1>
-        <p>{content?.heroText}</p>
-        <button className="btn" onClick={() => scrollTo("catalog")}>
-          Каталог
-        </button>
-      </section>
+      <div id="top" />
 
-      {/* О мастерской */}
-      <section className="about" id="about">
-        <div className="about-inner">
-          <div>
-            <h2>{content?.aboutTitle}</h2>
-            {(content?.aboutText ?? "").split("\n\n").map((para, i) => (
-              <p key={i}>{para}</p>
-            ))}
-          </div>
-          {content?.aboutImage && (
-            <div className="about-photo">
-              <img src={content.aboutImage} alt="Мастерская" loading="lazy" />
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Каталог: обложки коллекций */}
-      <section className="collections" id="catalog">
-        <h2 className="section-title">Каталог</h2>
-        <div className="collections-grid">
-          {(collections ?? []).map(c => (
-            <button
-              key={c.id}
-              className="collection-card"
-              onClick={() => {
-                setActiveSlug(c.slug);
-                scrollTo("products");
-              }}
-            >
-              {c.coverImage && (
-                <img src={c.coverImage} alt={c.title} loading="lazy" />
-              )}
-              <span className="collection-label">{c.title}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Товары */}
-      <section className="products" id="products">
-        <div className="tabs">
-          {(collections ?? []).map(c => (
-            <button
-              key={c.id}
-              className={`tab ${c.slug === slug ? "active" : ""}`}
-              onClick={() => setActiveSlug(c.slug)}
-            >
-              {c.title}
-            </button>
-          ))}
-        </div>
-
-        <div className="products-grid">
-          {visibleProducts.map(p => (
-            <ProductCard key={p.id} product={p} onAdd={() => addToCart(p)} />
-          ))}
-          {visibleProducts.length === 0 && (
-            <p
-              style={{
-                gridColumn: "1 / -1",
-                textAlign: "center",
-                color: "var(--text-soft)",
-                padding: "40px 0",
-              }}
-            >
-              В этой коллекции пока пусто
-            </p>
-          )}
-        </div>
-      </section>
-
-      {/* Доставка */}
-      <section className="delivery" id="delivery">
-        <h2>{content?.deliveryTitle}</h2>
-        <p>{content?.deliveryText}</p>
-      </section>
+      {/* Блоки страницы в порядке, заданном в конструкторе */}
+      {visibleBlocks.map(block => (
+        <BlockRenderer key={block.id} block={block} ctx={blockContext} />
+      ))}
 
       {/* Футер */}
       <footer className="footer" id="contacts">
@@ -283,45 +271,6 @@ export default function Home() {
             </button>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function ProductCard({
-  product,
-  onAdd,
-}: {
-  product: {
-    id: number;
-    name: string;
-    price: number;
-    material: string | null;
-    image: string | null;
-  };
-  onAdd: () => void;
-}) {
-  const [added, setAdded] = useState(false);
-  return (
-    <div className="card">
-      <div className="card-photo">
-        {product.image && (
-          <img src={product.image} alt={product.name} loading="lazy" />
-        )}
-      </div>
-      <div className="card-body">
-        <div className="card-name">{product.name}</div>
-        <div className="card-material">{product.material}</div>
-        <button
-          className={`card-buy ${added ? "added" : ""}`}
-          onClick={() => {
-            onAdd();
-            setAdded(true);
-            setTimeout(() => setAdded(false), 1200);
-          }}
-        >
-          {added ? "Добавлено ✓" : `${product.price.toLocaleString("ru-RU")} ₽`}
-        </button>
       </div>
     </div>
   );

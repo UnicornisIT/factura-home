@@ -73,6 +73,23 @@ export const siteContent = sqliteTable("siteContent", {
     .$onUpdate(() => new Date()),
 });
 
+// ── Блоки конструктора главной страницы ──────────────────────
+// type не ограничен enum намеренно: новые типы блоков добавляются
+// контрактом и Zod-валидацией без ALTER TABLE. data — JSON-строка.
+export const blocks = sqliteTable("blocks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(),
+  position: integer("position").notNull(),
+  isVisible: integer("isVisible", { mode: "boolean" }).default(true).notNull(),
+  data: text("data").notNull().default("{}"),
+  background: text("background"),
+  createdAt: integer("createdAt", { mode: "timestamp" }).default(ts).notNull(),
+  updatedAt: integer("updatedAt", { mode: "timestamp" })
+    .default(ts)
+    .notNull()
+    .$onUpdate(() => new Date()),
+});
+
 // ── Allowlist для Telegram-логина в админку ────────────────────
 // См. комментарий в schema-mysql.ts — структура идентична.
 export const adminAllowlist = sqliteTable("adminAllowlist", {

@@ -5,6 +5,8 @@ import { collectionsRouter } from "./collections-router";
 import { productsRouter } from "./products-router";
 import { ordersRouter } from "./orders-router";
 import { contentRouter } from "./content-router";
+import { blocksRouter } from "./blocks-router";
+import { systemRouter } from "./system-router";
 import { createRouter, publicQuery } from "./middleware";
 import { revokeSession, setSessionCookie } from "./session";
 const authRouter = createRouter({
@@ -49,6 +51,8 @@ export const appRouter = createRouter({
   products: productsRouter,
   orders: ordersRouter,
   content: contentRouter,
+  blocks: blocksRouter,
+  system: systemRouter,
 });
 
 export type AppRouter = typeof appRouter;

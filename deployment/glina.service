@@ -1,0 +1,24 @@
+[Unit]
+Description=Glina Shop (витрина, админ-панель, API)
+Documentation=https://github.com/UnicornisIT/factura-home
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@APP_USER@
+Group=@APP_USER@
+WorkingDirectory=@APP_DIR@/app
+# Конфигурация читается из app/.env через dotenv относительно WorkingDirectory.
+ExecStart=/usr/bin/node dist/boot.js
+Restart=on-failure
+RestartSec=5
+# NoNewPrivileges не включается: обновлению из панели нужна sudoers-запись
+# на /usr/local/sbin/glina-update.sh (см. deployment/sudoers-glina-update).
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=@RW_PATHS@
+
+[Install]
+WantedBy=multi-user.target

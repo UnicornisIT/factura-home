@@ -1,5 +1,5 @@
 import { z } from "zod";
-function httpsUrl(value: string) {
+export function httpsUrl(value: string) {
   try {
     return new URL(value).protocol === "https:";
   } catch {

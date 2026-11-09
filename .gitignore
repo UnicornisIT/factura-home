@@ -20,3 +20,5 @@ coverage/
 .idea/
 .vscode/
 .npm-cache/
+.qwen/
+QWEN.md

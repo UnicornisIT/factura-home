@@ -7,6 +7,7 @@ import {
   type Sql,
 } from "../api/queries/security-store";
 import { ensureOwner } from "../api/queries/admin-allowlist";
+import { ensureDefaultBlocks } from "../api/queries/blocks";
 async function migrate() {
   const directory = new URL("./migrations/", import.meta.url);
   const files = readdirSync(directory)
@@ -43,6 +44,9 @@ async function migrate() {
   if (env.dbDialect === "sqlite") await securityTransaction(apply);
   else await apply(securitySql);
   await ensureOwner();
+  // Стартовый набор блоков конструктора из текущих текстов siteContent.
+  // Идемпотентно: на непустой таблице blocks ничего не делает.
+  await ensureDefaultBlocks();
 }
 migrate()
   .then(() => process.exit(0))

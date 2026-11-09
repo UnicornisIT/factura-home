@@ -94,6 +94,26 @@ export const siteContent = mysqlTable("siteContent", {
 
 export type SiteContent = typeof siteContent.$inferSelect;
 
+// ── Блоки конструктора главной страницы ──────────────────────
+// type — строка, а не ENUM: новые типы блоков добавляются контрактом
+// и Zod-валидацией без ALTER TABLE. data хранит JSON-строку.
+
+export const blocks = mysqlTable("blocks", {
+  id: serial("id").primaryKey(),
+  type: varchar("type", { length: 32 }).notNull(),
+  position: int("position").notNull(),
+  isVisible: boolean("isVisible").default(true).notNull(),
+  data: text("data").notNull(),
+  background: varchar("background", { length: 32 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt")
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+});
+
+export type Block = typeof blocks.$inferSelect;
+
 // ── Allowlist для Telegram-логина в админку ────────────────────
 // Только здесь перечисленные telegramId могут войти через Telegram Login Widget.
 // Роль super_admin может добавлять/удалять записи через админ-панель.

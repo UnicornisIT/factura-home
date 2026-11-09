@@ -8,6 +8,7 @@ export const collections = active.collections;
 export const products = active.products;
 export const orders = active.orders;
 export const siteContent = active.siteContent;
+export const blocks = active.blocks;
 export const adminAllowlist = active.adminAllowlist;
 
 // Канонические TS-типы берём из MySQL-схемы — оба диалекта дают идентичные
@@ -17,5 +18,6 @@ export type {
   Product,
   Order,
   SiteContent,
+  Block,
   AdminAllowlistEntry,
 } from "./schema-mysql";

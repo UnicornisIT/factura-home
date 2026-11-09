@@ -1,8 +1,13 @@
-import { readFileSync } from "node:fs";
-export const DDL = readFileSync(
-  new URL("./migrations/001_initial.sqlite.sql", import.meta.url),
-  "utf8"
-);
+import { readFileSync, readdirSync } from "node:fs";
+
+const directory = new URL("./migrations/", import.meta.url);
+
+// DDL для тестов — все применённые SQLite-миграции по порядку.
+export const DDL = readdirSync(directory)
+  .filter(name => name.endsWith(".sqlite.sql"))
+  .sort()
+  .map(name => readFileSync(new URL(name, directory), "utf8"))
+  .join("\n");
 
 export function createSqliteTables(client: import("better-sqlite3").Database) {
   client.exec(DDL);
@@ -19,6 +24,7 @@ export function clearSqliteTables(client: import("better-sqlite3").Database) {
     "orders",
     "collections",
     "siteContent",
+    "blocks",
     "adminAllowlist",
   ]) {
     client.exec(`DELETE FROM ${t};`);

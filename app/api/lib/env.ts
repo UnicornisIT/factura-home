@@ -57,6 +57,31 @@ if (isProduction) {
   if (process.env.DEV_ADMIN_ORIGIN)
     throw new Error("DEV_ADMIN_ORIGIN is forbidden in production");
 }
+const serverUpdateEnabled = process.env.SERVER_UPDATE_ENABLED === "true";
+if (
+  process.env.SERVER_UPDATE_ENABLED &&
+  !["true", "false"].includes(process.env.SERVER_UPDATE_ENABLED)
+)
+  throw new Error("SERVER_UPDATE_ENABLED must be true or false");
+const serverUpdateRepository =
+  process.env.SERVER_UPDATE_REPOSITORY || "UnicornisIT/factura-home";
+const serverUpdateScript =
+  process.env.SERVER_UPDATE_SCRIPT || "/usr/local/sbin/glina-update.sh";
+const serverUpdateStatusPath =
+  process.env.SERVER_UPDATE_STATUS_PATH || "/var/lib/glina/update-status.json";
+if (serverUpdateEnabled) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(serverUpdateRepository))
+    throw new Error("SERVER_UPDATE_REPOSITORY must be in owner/name form");
+  if (!isAbsolute(serverUpdateScript))
+    throw new Error("SERVER_UPDATE_SCRIPT must be an absolute path");
+  if (!isAbsolute(serverUpdateStatusPath))
+    throw new Error("SERVER_UPDATE_STATUS_PATH must be an absolute path");
+  // Приватный репозиторий: без токена сервер не сможет читать релизы GitHub.
+  if (isProduction && !process.env.SERVER_UPDATE_TOKEN)
+    throw new Error(
+      "SERVER_UPDATE_TOKEN is required when SERVER_UPDATE_ENABLED=true in production"
+    );
+}
 export const env = {
   isProduction,
   dbDialect,
@@ -69,4 +94,9 @@ export const env = {
   telegramBotName: process.env.TELEGRAM_BOT_NAME || "",
   superAdminTelegramId: owner,
   uploadDir: process.env.UPLOAD_DIR || "./uploads",
+  serverUpdateEnabled,
+  serverUpdateRepository,
+  serverUpdateToken: process.env.SERVER_UPDATE_TOKEN || "",
+  serverUpdateScript,
+  serverUpdateStatusPath,
 } as const;
