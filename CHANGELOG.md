@@ -3,6 +3,16 @@
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версионирование — [SemVer](https://semver.org/lang/ru/).
 
+## [0.2.1] - 2026-11-10
+
+### Исправлено
+
+- Обновление из админ-панели: `KillMode=process` в шаблоне `factura.service` — `systemctl restart` внутри скрипта обновления больше не убивает сам скрипт до записи статуса и healthcheck.
+- `ReadWritePaths` юнита теперь включает каталоги скрипта обновления (`/usr/local/sbin`) и юнитов (`/etc/systemd/system`): без них переустановка deployment-файлов падала с EROFS под `ProtectSystem=full` и уходила в откат.
+- Статус-файл обновления (`update-status.json`) принадлежит пользователю сервиса (`User=` из юнита), а не владельцу каталога приложения — панель видит статус даже при смешанных правах.
+- Sudoers-запись пробрасывает `FACTURA_APP_DIR` в скрипт обновления для серверов с нестандартной раскладкой (не `/opt/factura/current`).
+- Шаблон юнита поддерживает опциональный `EnvironmentFile=-/etc/factura/factura.env`.
+
 ## [0.2.0] - 2026-11-09
 
 ### Добавлено

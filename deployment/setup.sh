@@ -209,9 +209,11 @@ EOF
 }
 
 install_service() {
+  # В ReadWritePaths, кроме данных и логов, входят каталоги скрипта обновления
+  # и юнита: без них install_deployment_files получит EROFS под ProtectSystem=full.
   sed -e "s|@APP_DIR@|$APP_DIR|g" \
     -e "s|@APP_USER@|$APP_USER|g" \
-    -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR|g" \
+    -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR $(dirname "$UPDATE_SCRIPT") /etc/systemd/system|g" \
     "$APP_DIR/deployment/factura.service" >/etc/systemd/system/$SERVICE_NAME.service
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME"

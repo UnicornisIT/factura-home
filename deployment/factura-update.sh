@@ -48,6 +48,10 @@ fi
 
 OPERATION_ID="$(date +%Y%m%d%H%M%S)-$$"
 APP_USER="$(stat -c %U "$APP_DIR")"
+# Статус должен читать процесс сервиса: владелец файла — User= из юнита,
+# даже когда каталог приложения принадлежит другому пользователю.
+SERVICE_USER="$(systemctl show -p User --value "$SERVICE" 2>/dev/null || true)"
+STATUS_USER="${SERVICE_USER:-$APP_USER}"
 
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r\t'; }
 
@@ -61,7 +65,7 @@ write_status() { # write_status state tag message finished
     "$STARTED_AT" \
     "$( [ "${4:-false}" = true ] && printf '"%s"' "$(date -Is)" || printf 'null' )" \
     "$( [ -n "${3:-}" ] && printf '"%s"' "$(json_escape "$3")" || printf 'null' )" >"$tmp"
-  chown "$APP_USER:$APP_USER" "$tmp" 2>/dev/null || true
+  chown "$STATUS_USER:$STATUS_USER" "$tmp" 2>/dev/null || true
   chmod 640 "$tmp"
   mv -f "$tmp" "$STATUS_PATH"
 }
@@ -111,9 +115,12 @@ install_deployment_files() { # переустановка скрипта обн�
   fi
   if [ -f "$APP_DIR/deployment/factura.service" ]; then
     [ -f "$UNIT_FILE" ] && cp -f "$UNIT_FILE" "$DEST/factura.service.prev"
+    # В ReadWritePaths входят каталоги данных, логов, скрипта обновления и
+    # юнита: без последних install_deployment_files получает EROFS под
+    # ProtectSystem=full при следующем обновлении из панели.
     sed -e "s|@APP_DIR@|$APP_DIR|g" \
       -e "s|@APP_USER@|$APP_USER|g" \
-      -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE")|g" \
+      -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE") $(dirname "$UPDATE_SELF") $(dirname "$UNIT_FILE")|g" \
       "$APP_DIR/deployment/factura.service" >"$UNIT_FILE.tmp"
     mv -f "$UNIT_FILE.tmp" "$UNIT_FILE"
     systemctl daemon-reload

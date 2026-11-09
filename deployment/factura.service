@@ -10,11 +10,18 @@ User=@APP_USER@
 Group=@APP_USER@
 WorkingDirectory=@APP_DIR@/app
 # Конфигурация читается из app/.env через dotenv относительно WorkingDirectory.
+# EnvironmentFile опционален (-): для серверов с отдельным конфигом юнита.
+EnvironmentFile=-/etc/factura/factura.env
 ExecStart=/usr/bin/node dist/boot.js
 Restart=on-failure
 RestartSec=5
 # NoNewPrivileges не включается: обновлению из панели нужна sudoers-запись
 # на /usr/local/sbin/factura-update.sh (см. deployment/sudoers-factura-update).
+# KillMode=process: systemctl restart внутри скрипта обновления убивает только
+# основной процесс, а сам скрипт (та же cgroup) доживает до healthcheck и
+# записи статуса. Права на запись в /usr/local/sbin и /etc/systemd/system
+# всё равно ограничены chmod: сервис работает не от root.
+KillMode=process
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
