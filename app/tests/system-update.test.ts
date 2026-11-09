@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -213,6 +213,8 @@ describe("startUpdate guards", () => {
     await withTempDir(async dir => {
       const script = join(dir, "update.sh");
       await writeFile(script, "#!/bin/sh\n");
+      // На Linux access(X_OK) требует настоящий бит исполняемости.
+      await chmod(script, 0o755);
       const statusPath = join(dir, "status.json");
       await writeFile(
         statusPath,
@@ -242,6 +244,7 @@ describe("startUpdate guards", () => {
     await withTempDir(async dir => {
       const script = join(dir, "update.sh");
       await writeFile(script, "#!/bin/sh\n");
+      await chmod(script, 0o755);
       const launched: string[] = [];
       const result = await startUpdate({
         enabled: true,
