@@ -7,6 +7,7 @@ import {
   cp,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
@@ -58,6 +59,11 @@ async function createFixture() {
   await writeStub("npm", [
     'echo "npm $*" >> "$STUB_LOG"',
     'if [ -n "${STUB_NPM_FAIL:-}" ]; then exit 1; fi',
+    // Сбой конкретного этапа один раз: повторный вызов (откат) проходит успешно.
+    'if [ -n "${STUB_NPM_FAIL_STAGE:-}" ] && [[ "$*" == *"$STUB_NPM_FAIL_STAGE"* ]]; then',
+    '  stage_counter="${STUB_COUNTER:?STUB_COUNTER required}.stage"',
+    '  if [ ! -f "$stage_counter" ]; then touch "$stage_counter"; exit 1; fi',
+    "fi",
     'if [ -n "${STUB_NPM_FAIL_ONCE:-}" ] && [ ! -f "${STUB_COUNTER}" ]; then',
     '  touch "${STUB_COUNTER}"; exit 1;',
     "fi",
@@ -93,11 +99,54 @@ async function createFixture() {
   ]);
   await writeStub("systemctl", [
     'echo "systemctl $*" >> "$STUB_LOG"',
+    'if [ -n "${STUB_SYSTEMCTL_FAIL:-}" ] && [ "$1" = "$STUB_SYSTEMCTL_FAIL" ]; then',
+    "  exit 1",
+    "fi",
     "exit 0",
   ]);
-  await writeStub("systemd-analyze", ["exit 0"]);
+  await writeStub("systemd-analyze", [
+    'if [ -n "${STUB_VERIFY_FAIL:-}" ]; then echo "bad unit" >&2; exit 1; fi',
+    "exit 0",
+  ]);
   await writeStub("visudo", ["exit 0"]);
-  await writeStub("sqlite3", ['echo "sqlite3 $*" >> "$STUB_LOG"', "exit 0"]);
+  // Заглушка systemd-run синхронно запускает «transient unit»: тот же скрипт
+  // с переменными из --setenv. Это воспроизводит реальную гонку — дочерний
+  // процесс берёт flock, пока родитель ещё жив (ждёт возврата systemd-run).
+  await writeStub("systemd-run", [
+    'echo "systemd-run $*" >> "$STUB_LOG"',
+    'if [ -n "${STUB_SYSTEMD_RUN_FAIL:-}" ]; then exit 1; fi',
+    'script="${@: -1}"',
+    "envs=()",
+    'for a in "$@"; do case "$a" in --setenv=*) envs+=("${a#--setenv=}");; esac; done',
+    'env "${envs[@]}" FACTURA_UPDATE_FORCE_DETACH= bash "$script"',
+  ]);
+  await writeStub("sqlite3", [
+    'echo "sqlite3 $*" >> "$STUB_LOG"',
+    'if [ -n "${STUB_SQLITE_FAIL:-}" ]; then exit 1; fi',
+    'case "${2:-}" in',
+    "  .backup*)",
+    '    arg="${2#.backup }"',
+    '    dest="${arg//\\\'/}"',
+    '    [ -n "$dest" ] && printf "" > "$dest"',
+    "    ;;",
+    "  *)",
+    '    echo "ok"',
+    "    ;;",
+    "esac",
+    "exit 0",
+  ]);
+  // Обёртка git: перехватывает fetch по флагу, остальное — настоящий git.
+  await writeStub("git", [
+    'if [ -n "${STUB_GIT_FETCH_FAIL:-}" ]; then',
+    '  for a in "$@"; do',
+    '    if [ "$a" = "fetch" ]; then',
+    '      echo "fatal: unable to access repository: could not resolve host" >&2',
+    "      exit 128",
+    "    fi",
+    "  done",
+    "fi",
+    'exec /usr/bin/git "$@"',
+  ]);
   await writeStub("sudo", ['exec "$@"']);
 
   // «Удалённый» репозиторий с именем, совпадающим с SERVER_UPDATE_REPOSITORY.
@@ -157,12 +206,17 @@ async function createFixture() {
   const appDir = join(dir, "opt", "factura");
   git(dir, ["clone", remoteDir, appDir]);
   git(appDir, ["checkout", "v0.0.1"]);
+  // Пользовательские изображения вне рабочего дерева (как /var/lib/factura/uploads).
+  const uploadsDir = join(dir, "uploads");
+  await mkdir(uploadsDir, { recursive: true });
+  await writeFile(join(uploadsDir, "photo-1.webp"), "fake-image-data");
   const envFile = join(appDir, "app", ".env");
   await writeFile(
     envFile,
     [
       "DB_DIALECT=sqlite",
       `SQLITE_PATH=${join(dir, "db.sqlite")}`,
+      `UPLOAD_DIR=${uploadsDir}`,
       `GITHUB_TOKEN=${SECRET}`,
       "SERVER_UPDATE_REPOSITORY=UnicornisIT/factura-home",
       "HOST=127.0.0.1",
@@ -272,6 +326,33 @@ describeBash("factura-update.sh", () => {
       expect(stubLog).toContain("npm run build");
       expect(stubLog).toContain("npm run db:migrate");
       expect(stubLog).toContain("systemctl restart factura");
+      // SQLite: Backup API (.backup) и проверка целостности копии.
+      expect(stubLog).toContain(".backup");
+      expect(stubLog).toContain("integrity_check");
+      // Резервная копия: мета, образы (hardlink-копия uploads), .env, скрипт.
+      const backups = await readdir(join(fx.dir, "backups"));
+      expect(backups.length).toBe(1);
+      const dest = join(fx.dir, "backups", backups[0]!);
+      const meta = await readFile(join(dest, "backup-meta.txt"), "utf8");
+      expect(meta).toContain("currentRef=v0.0.1");
+      expect(meta).toContain("targetTag=v0.0.2");
+      expect(
+        await readFile(join(dest, "uploads", "photo-1.webp"), "utf8")
+      ).toBe("fake-image-data");
+      await expect(readFile(join(dest, "db.sqlite"), "utf8")).resolves.toBe("");
+      expect(await readFile(join(dest, "env.backup"), "utf8")).toContain(
+        "DB_DIALECT=sqlite"
+      );
+      expect(
+        await readFile(join(dest, "factura-update.sh.backup"), "utf8")
+      ).toContain("Обновление Factura Shop");
+      // Исходные данные не тронуты.
+      expect(
+        await readFile(join(fx.dir, "uploads", "photo-1.webp"), "utf8")
+      ).toBe("fake-image-data");
+      await expect(readFile(join(fx.dir, "db.sqlite"), "utf8")).resolves.toBe(
+        ""
+      );
       // Юнит переустановлен из архива релиза (маркер tarball-source) с
       // подстановкой шаблона; ReadWritePaths не даёт сервису писать в
       // каталоги root-скрипта и юнитов.
@@ -456,6 +537,173 @@ describeBash("factura-update.sh", () => {
       } finally {
         holder.kill();
       }
+    });
+  }, 120000);
+
+  it("передача в transient unit: ребёнок стартует при живом родителе без гонки блокировок", async () => {
+    await withFixture(async fx => {
+      // Заглушка systemd-run синхронно выполняет скрипт-ребёнка, пока родитель
+      // ждёт возврата systemd-run — старая гонка flock здесь была бы неизбежна.
+      const result = fx.run({ FACTURA_UPDATE_FORCE_DETACH: "1" });
+      expect(result.status).toBe(0);
+      const stubLog = await fx.readStubLog();
+      expect(stubLog).toContain("systemd-run");
+      expect(stubLog).toContain("--unit=factura-update");
+      const status = await fx.readStatus();
+      expect(status.state).toBe("success");
+      expect(status.tag).toBe("v0.0.2");
+      expect(fx.head()).toBe("v0.0.2");
+      expect(await fx.readLog()).toContain("запуск в transient unit");
+    });
+  }, 120000);
+
+  it("сбой systemd-run: обновление продолжается в cgroup сервиса", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({
+        FACTURA_UPDATE_FORCE_DETACH: "1",
+        STUB_SYSTEMD_RUN_FAIL: "1",
+      });
+      expect(result.status).toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("success");
+      expect(status.tag).toBe("v0.0.2");
+      expect(fx.head()).toBe("v0.0.2");
+      expect(await fx.readLog()).toContain(
+        "предупреждение: systemd-run не сработал"
+      );
+    });
+  }, 120000);
+
+  it("git fetch с ошибкой: диагноз в статусе, код не тронут", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_GIT_FETCH_FAIL: "1" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("git fetch не удался");
+      // Диагностика git попала в сообщение и не содержит секретов.
+      expect(status.message).toContain("could not resolve host");
+      expect(JSON.stringify(status)).not.toContain(SECRET);
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("ошибка резервного копирования БД: обновление отменяется до изменения кода", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_SQLITE_FAIL: "1" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("резервную копию БД");
+      expect(fx.head()).toBe("v0.0.1");
+      expect(await fx.readStubLog()).not.toContain("npm ci");
+    });
+  }, 120000);
+
+  it("ошибка сборки: откат на предыдущий тег с подтверждением работоспособности", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({
+        STUB_NPM_FAIL_STAGE: "run build",
+        STUB_COUNTER: join(fx.dir, "npm-counter"),
+      });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("сборка не удалась");
+      expect(status.message).toContain("откачен на v0.0.1");
+      expect(status.message).toContain("работоспособен");
+      expect(status.message).toContain("БД не откатывалась");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("ошибка миграции: откат кода, БД не откатывается", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({
+        STUB_NPM_FAIL_STAGE: "db:migrate",
+        STUB_COUNTER: join(fx.dir, "npm-counter"),
+      });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("миграции не применились");
+      expect(status.message).toContain("откачен на v0.0.1");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("unit-файл не проходит systemd-analyze verify: юнит не заменён, выполнен откат", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_VERIFY_FAIL: "1" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("файлов деплоя");
+      expect(status.message).toContain("откачен на v0.0.1");
+      // Повреждённая конфигурация systemd не установлена.
+      expect(await readFile(fx.unitFile, "utf8")).toContain("Description=old");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("перезапуск сервиса не удался: откат без ложного «восстановлено»", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_SYSTEMCTL_FAIL: "restart" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("перезапуск сервиса не удался");
+      expect(status.message).toContain("откачен на v0.0.1");
+      expect(status.message).toContain("требуется ручное вмешательство");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("откат не удался: статус сообщает о необходимости ручного вмешательства", async () => {
+    await withFixture(async fx => {
+      // npm падает всегда: и обновление, и попытка отката (npm ci) не удаются.
+      const result = fx.run({ STUB_NPM_FAIL: "1" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("rollback failed");
+      expect(status.message).not.toContain("работоспособен");
+      expect(fx.head()).toBe("v0.0.1");
+      expect(await fx.readLog()).toContain("ОТКАТ НЕ УДАЛСЯ");
+    });
+  }, 120000);
+
+  it("GitHub API 404: понятный диагноз, код не тронут", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_GITHUB_CODE: "404" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("404");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("GitHub API 429: понятный диагноз про лимит запросов", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_GITHUB_CODE: "429" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("429");
+      expect(status.message).toContain("лимит");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("GitHub API недоступен (сетевая ошибка): понятный диагноз", async () => {
+    await withFixture(async fx => {
+      const result = fx.run({ STUB_GITHUB_CODE: "000" });
+      expect(result.status).not.toBe(0);
+      const status = await fx.readStatus();
+      expect(status.state).toBe("failed");
+      expect(status.message).toContain("недоступен");
+      expect(fx.head()).toBe("v0.0.1");
     });
   }, 120000);
 });

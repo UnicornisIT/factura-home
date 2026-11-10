@@ -133,6 +133,19 @@ describe("fetchLatestRelease", () => {
     const cached = await fetchLatestRelease("owner/repo", "");
     expect(cached?.tag).toBe("v9.9.9");
   });
+
+  it("reports an unreachable GitHub API as BAD_GATEWAY without raw network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      })
+    );
+    await expect(fetchLatestRelease("owner/repo", "")).rejects.toMatchObject({
+      code: "BAD_GATEWAY",
+      message: expect.stringContaining("недоступен"),
+    });
+  });
 });
 
 describe("readUpdateStatus", () => {
@@ -279,6 +292,65 @@ describe("startUpdate guards", () => {
       });
       expect(result).toEqual({ started: true });
       expect(launched).toEqual([script]);
+    });
+  });
+
+  it("awaits an asynchronous launch confirmation", async () => {
+    await withTempDir(async dir => {
+      const script = join(dir, "update.sh");
+      await writeFile(script, "#!/bin/sh\n");
+      await chmod(script, 0o755);
+      const order: string[] = [];
+      const result = await startUpdate({
+        enabled: true,
+        scriptPath: script,
+        statusPath: join(dir, "status.json"),
+        launch: async () => {
+          await new Promise(resolve => setTimeout(resolve, 10));
+          order.push("confirmed");
+        },
+      });
+      order.push("returned");
+      expect(result).toEqual({ started: true });
+      expect(order).toEqual(["confirmed", "returned"]);
+    });
+  });
+
+  it("does not report success when the launch is refused", async () => {
+    await withTempDir(async dir => {
+      const script = join(dir, "update.sh");
+      await writeFile(script, "#!/bin/sh\n");
+      await chmod(script, 0o755);
+      await expect(
+        startUpdate({
+          enabled: true,
+          scriptPath: script,
+          statusPath: join(dir, "status.json"),
+          launch: () => {
+            throw new Error("spawn sudo ENOENT");
+          },
+        })
+      ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    });
+  });
+
+  it("propagates a refused default launch (missing sudo/sudoers or rejected script)", async () => {
+    // Реальный путь запуска: Windows — sudo отсутствует (spawn error),
+    // Linux — sudo -n либо отклоняет запуск, либо скрипт мгновенно выходит
+    // с кодом 3. В обоих случаях API обязано сообщить об ошибке, а не
+    // вернуть { started: true }.
+    await withTempDir(async dir => {
+      const script = join(dir, "update.sh");
+      await writeFile(script, "#!/bin/sh\nexit 3\n");
+      await chmod(script, 0o755);
+      await expect(
+        startUpdate({
+          enabled: true,
+          scriptPath: script,
+          statusPath: join(dir, "status.json"),
+          launchConfirmMs: 5_000,
+        })
+      ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
     });
   });
 });

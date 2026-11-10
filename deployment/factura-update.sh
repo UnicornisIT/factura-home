@@ -4,14 +4,18 @@
 # Запускается от root (через sudoers-запись) по кнопке «Обновить» в админ-панели
 # или вручную: sudo /usr/local/sbin/factura-update.sh
 #
-# Поток: блокировка (flock) -> при запуске из cgroup веб-сервиса перенос себя
-# в transient unit systemd (обновление не зависит от рестарта сервиса и пишет
-# root-файлы вне mount namespace сервиса) -> стадии: проверка окружения,
-# доступ к GitHub, информация о релизе (+ скачивание архива тега), резервные
-# копии, git fetch/checkout тега, npm ci, сборка, db:migrate, переустановка
+# Поток: при запуске из cgroup веб-сервиса — перенос себя в transient unit
+# systemd (блокировка flock освобождается до передачи, чтобы дочерний процесс
+# не спорил за неё с ещё живым родителем; обновление не зависит от рестарта
+# сервиса и пишет root-файлы вне mount namespace сервиса) -> блокировка (flock)
+# -> стадии: проверка окружения, доступ к GitHub, информация о релизе
+# (+ скачивание архива тега), резервные копии (БД через SQLite Backup API с
+# integrity_check, изображения, .env, метаданные, скрипт/unit/sudoers),
+# git fetch/checkout тега, npm ci, сборка, db:migrate, переустановка
 # deployment-файлов, restart, healthcheck.
 # При сбое код, скрипт обновления, юнит и sudoers откатываются на предыдущие,
-# сервис перезапускается; БД не откатывается (миграции могут быть необратимы).
+# сервис перезапускается и работоспособность отката подтверждается healthcheck;
+# БД не откатывается (миграции могут быть необратимы).
 #
 # Границы доверия:
 #   - git выполняется от имени владельца репозитория: нет «dubious ownership»,
@@ -140,9 +144,15 @@ finish_failed() { # finish_failed message [rollback:true]
     if git_run checkout -f "$CURRENT_REF" &&
       run_as_app "npm ci" && run_as_app "npm run build"; then
       restore_deployment_files
-      systemctl restart "$SERVICE" || echo "$(date -Is) [$OPERATION_ID] предупреждение: сервис не перезапустился при откате"
-      echo "$(date -Is) [$OPERATION_ID] откат завершён (БД не откатывается)"
-      message="$message; код откачен на $CURRENT_REF, БД не откатывалась"
+      # Откат подтверждается healthcheck: «восстановлено» без проверки сервиса
+      # недостоверно. БД не откатывается — миграции могут быть необратимы.
+      if systemctl restart "$SERVICE" && healthcheck; then
+        echo "$(date -Is) [$OPERATION_ID] откат завершён, сервис работоспособен (БД не откатывается)"
+        message="$message; код откачен на $CURRENT_REF, сервис работоспособен, БД не откатывалась"
+      else
+        echo "$(date -Is) [$OPERATION_ID] ОТКАТ НЕПОЛНЫЙ: код возвращён, но сервис не поднялся — требуется ручное вмешательство"
+        message="$message; код откачен на $CURRENT_REF, но сервис не поднялся (healthcheck) — требуется ручное вмешательство; БД не откатывалась"
+      fi
     else
       echo "$(date -Is) [$OPERATION_ID] ОТКАТ НЕ УДАЛСЯ — требуется ручное вмешательство"
       message="$message; rollback failed"
@@ -198,6 +208,9 @@ BACKUP_DIR="${FACTURA_BACKUP_DIR:-/var/backups/factura}"
 UNIT_FILE="${FACTURA_UNIT_FILE:-/etc/systemd/system/$SERVICE.service}"
 SUDOERS_FILE="${FACTURA_SUDOERS_FILE:-/etc/sudoers.d/$SERVICE-update}"
 DATA_DIR="${FACTURA_DATA_DIR:-/var/lib/factura}"
+UPLOADS_DIR="$(read_env UPLOAD_DIR)"
+UPLOADS_DIR="${UPLOADS_DIR:-$DATA_DIR/uploads}"
+[[ "$UPLOADS_DIR" != /* ]] && UPLOADS_DIR="$APP_DIR/app/$UPLOADS_DIR"
 HEALTHCHECK_URL="http://$HOST:$PORT/api/trpc/ping"
 HEALTHCHECK_TRIES="${FACTURA_HEALTHCHECK_TRIES:-30}"
 APP_USER="$(stat -c %U "$APP_DIR")"
@@ -245,9 +258,20 @@ git_run() { # Git от имени владельца репозитория (б�
 # из cgroup сервиса переносим себя в transient unit. Он работает вне mount
 # namespace сервиса (ProtectSystem не мешает писать root-файлы), а рестарт
 # factura.service его не затрагивает. KillMode=process в юните — второй рубеж.
+#
+# Блокировка освобождается ДО systemd-run: transient-процесс стартует, пока
+# родитель ещё жив, и не должен обнаружить flock занятым (гонка передачи).
+# Повторное имя --unit=factura-update отклоняет второй параллельный запуск, а
+# fallback-ветвь повторно берёт блокировку и при занятости молча выходит —
+# статусом владеет уже выполняющееся обновление.
+# FACTURA_UPDATE_FORCE_DETACH — тестовый крючок для среды без cgroup сервиса;
+# через sudo переменная не передаётся (env_keep отсутствует), выставить её
+# может только root.
 if [ "${FACTURA_UPDATE_DETACHED:-0}" != "1" ] &&
-  grep -q "$SERVICE.service" /proc/self/cgroup 2>/dev/null &&
+  { [ "${FACTURA_UPDATE_FORCE_DETACH:-0}" = "1" ] ||
+    grep -q "$SERVICE.service" /proc/self/cgroup 2>/dev/null; } &&
   command -v systemd-run >/dev/null 2>&1; then
+  exec 9>&-
   echo "$(date -Is) [$OPERATION_ID] запуск в transient unit factura-update"
   if systemd-run --quiet --collect --unit=factura-update \
     --setenv=FACTURA_UPDATE_DETACHED=1 \
@@ -258,6 +282,12 @@ if [ "${FACTURA_UPDATE_DETACHED:-0}" != "1" ] &&
     exit 0
   fi
   echo "$(date -Is) [$OPERATION_ID] предупреждение: systemd-run не сработал, продолжаю в cgroup сервиса"
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    echo "$(date -Is) [$OPERATION_ID] блокировка занята другим обновлением, выход"
+    DONE=1
+    exit 1
+  fi
 fi
 
 install_deployment_files() { # переустановка скрипта, юнита и sudoers
@@ -280,8 +310,12 @@ install_deployment_files() { # переустановка скрипта, юни
     fi
   fi
   if [ -f "$src/factura.service" ]; then
+    # Временный файл создаётся в каталоге юнитов: с суффиксом .service
+    # (systemd-analyze verify не принимает файлы без unit-суффикса), с ведущей
+    # точкой (systemd игнорирует dot-файлы до переименования) и в той же ФС —
+    # переименование атомарно.
     local tmp
-    tmp="$(mktemp)"
+    tmp="$(mktemp "$(dirname "$UNIT_FILE")/.$SERVICE-XXXXXX.service")" || return 1
     # ReadWritePaths сервиса ограничен данными и логами: каталоги root-скрипта
     # и юнитов намеренно НЕ входят — их пишет transient unit от root.
     sed -e "s|@APP_DIR@|$APP_DIR|g" \
@@ -296,12 +330,13 @@ install_deployment_files() { # переустановка скрипта, юни
     fi
     [ -f "$UNIT_FILE" ] && cp -f "$UNIT_FILE" "$DEST/factura.service.prev"
     chmod 644 "$tmp"
+    if [ "$(id -u)" -eq 0 ]; then chown root:root "$tmp"; fi
     mv -f "$tmp" "$UNIT_FILE"
     systemctl daemon-reload
   fi
   if [ -f "$src/sudoers-factura-update" ] && [ -f "$SUDOERS_FILE" ]; then
     local stmp
-    stmp="$(mktemp)"
+    stmp="$(mktemp "$(dirname "$SUDOERS_FILE")/.sudoers-XXXXXX")" || return 1
     sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SELF|" \
       "$src/sudoers-factura-update" >"$stmp"
     chmod 440 "$stmp"
@@ -311,8 +346,8 @@ install_deployment_files() { # переустановка скрипта, юни
       return 1
     fi
     cp -f "$SUDOERS_FILE" "$DEST/sudoers.prev" 2>/dev/null || true
+    if [ "$(id -u)" -eq 0 ]; then chown root:root "$stmp"; fi
     mv -f "$stmp" "$SUDOERS_FILE"
-    if [ "$(id -u)" -eq 0 ]; then chown root:root "$SUDOERS_FILE"; fi
   fi
   return 0
 }
@@ -335,16 +370,62 @@ restore_deployment_files() { # возврат deployment-файлов из ре�
   return 0
 }
 
+sqlite_backup() { # sqlite_backup src dest — SQLite Backup API + integrity_check
+  # Простое cp для WAL-базы при активной записи недопустимо: копия может
+  # оказаться несогласованной. Используется .backup (sqlite3 CLI) или Backup
+  # API better-sqlite3, целостность копии проверяется integrity_check.
+  # Выполняется от имени пользователя приложения: файлы -wal/-shm остаются
+  # в его владении и сервис не теряет доступ к базе.
+  local src="$1" dest="$2" out helper rc=0
+  if command -v sqlite3 >/dev/null 2>&1; then
+    out="$(run_in / "sqlite3 '$src' \".backup '$dest'\" && sqlite3 '$dest' 'PRAGMA integrity_check;' | head -n 1")" || return 1
+    if [ "$out" != "ok" ]; then
+      echo "$(date -Is) [$OPERATION_ID] копия SQLite не прошла integrity_check: ${out:-<пусто>}"
+      return 1
+    fi
+    return 0
+  fi
+  # sqlite3 CLI отсутствует: Backup API через better-sqlite3 (зависимость приложения).
+  helper="${TMPDIR:-/tmp}/factura-sqlite-backup-$$.js"
+  cat >"$helper" <<'NODE'
+const Database = require("better-sqlite3");
+const [src, dest] = process.argv.slice(2);
+const db = new Database(src, { readonly: true, fileMustExist: true });
+db.backup(dest)
+  .then(() => db.close())
+  .then(() => {
+    const check = new Database(dest, { readonly: true });
+    const row = check.pragma("integrity_check", { simple: true });
+    check.close();
+    if (row !== "ok") throw new Error("integrity_check: " + row);
+  })
+  .catch(error => {
+    process.stderr.write(String(error) + "\n");
+    process.exit(1);
+  });
+NODE
+  chmod 644 "$helper" 2>/dev/null || true
+  chown "$APP_USER" "$helper" 2>/dev/null || true
+  run_in "$APP_DIR/app" "node '$helper' '$src' '$dest'" || rc=1
+  rm -f "$helper"
+  return $rc
+}
+
 backup_database() { # backup_database dest_dir
   local dest="$1"
   if [ "$DB_DIALECT" = sqlite ]; then
     local db="${SQLITE_PATH:-$APP_DIR/app/dev.db}"
     [[ "$db" != /* ]] && db="$APP_DIR/app/$db"
-    if command -v sqlite3 >/dev/null 2>&1; then
-      sqlite3 "$db" ".backup '$dest/db.sqlite'"
+    # Каталог резервной копии root-only (700): файл создаётся заранее и
+    # передаётся пользователю приложения, чтобы backup писал именно он.
+    if [ "$(id -u)" -eq 0 ]; then
+      install -o "$APP_USER" -g "$APP_USER" -m 600 /dev/null "$dest/db.sqlite" || return 1
     else
-      cp "$db" "$dest/db.sqlite"
+      install -m 600 /dev/null "$dest/db.sqlite" || return 1
     fi
+    sqlite_backup "$db" "$dest/db.sqlite" || return 1
+    chown root:root "$dest/db.sqlite" 2>/dev/null || true
+    chmod 600 "$dest/db.sqlite"
   else
     local url="$DATABASE_URL"
     [[ "$url" =~ ^mysql://([^:]+):([^@]*)@([^:/]+)(:([0-9]+))?/(.+)$ ]] || {
@@ -368,8 +449,8 @@ backup_database() { # backup_database dest_dir
 }
 
 healthcheck() {
-  local i
-  for i in $(seq 1 "$HEALTHCHECK_TRIES"); do
+  local _
+  for _ in $(seq 1 "$HEALTHCHECK_TRIES"); do
     if curl -fsS "$HEALTHCHECK_URL" >/dev/null 2>&1; then
       return 0
     fi
@@ -398,12 +479,16 @@ case "$REMOTE_URL" in
   *"$REPOSITORY" | *"$REPOSITORY.git") ;;
   *) finish_failed "origin ($REMOTE_URL) не соответствует SERVER_UPDATE_REPOSITORY ($REPOSITORY): источник обновления недостоверен" false ;;
 esac
-if ! git_run ls-remote --exit origin HEAD >/dev/null 2>&1; then
+git_sanitize() { # хвост stderr git без строк, похожих на секреты
+  printf '%s' "$1" | grep -viE 'token|password|authorization' | tail -n 3 | tr '\n' ' '
+}
+if ! LSREMOTE_OUT="$(git_run ls-remote --exit origin HEAD 2>&1)"; then
+  LSREMOTE_TAIL="$(git_sanitize "$LSREMOTE_OUT")"
   case "$REMOTE_URL" in
     git@* | ssh://*)
-      finish_failed "Нет доступа к GitHub по SSH ($REMOTE_URL): проверьте deploy key и core.sshCommand в конфигурации репозитория для пользователя $APP_USER" false ;;
+      finish_failed "Нет доступа к GitHub по SSH ($REMOTE_URL): проверьте deploy key и core.sshCommand в конфигурации репозитория для пользователя $APP_USER${LSREMOTE_TAIL:+; }${LSREMOTE_TAIL}" false ;;
     *)
-      finish_failed "Нет доступа к GitHub по HTTPS: проверьте GITHUB_TOKEN в $ENV_FILE" false ;;
+      finish_failed "Нет доступа к GitHub по HTTPS: проверьте GITHUB_TOKEN в $ENV_FILE${LSREMOTE_TAIL:+; }${LSREMOTE_TAIL}" false ;;
   esac
 fi
 
@@ -463,11 +548,34 @@ SAFE_TARGET="$(printf '%s' "$TARGET_TAG" | tr -c 'A-Za-z0-9._-' '_')"
 DEST="$BACKUP_DIR/${TS}-${SAFE_CURRENT}-to-${SAFE_TARGET}"
 mkdir -p "$DEST" || finish_failed "Не удалось создать каталог резервной копии $DEST" false
 chmod 700 "$BACKUP_DIR" 2>/dev/null || true
+chmod 700 "$DEST" 2>/dev/null || true
 backup_database "$DEST" || finish_failed "Не удалось создать резервную копию БД" false
+# Пользовательские изображения: hardlink-копия (cp -al) экономит место — файлы
+# в uploads создаются один раз и не перезаписываются на месте; при невозможности
+# hardlink (другая ФС) выполняется полная копия.
+if [ -d "$UPLOADS_DIR" ]; then
+  cp -al "$UPLOADS_DIR" "$DEST/uploads" 2>/dev/null ||
+    cp -a "$UPLOADS_DIR" "$DEST/uploads" ||
+    finish_failed "Не удалось создать резервную копию изображений ($UPLOADS_DIR)" false
+fi
+# Метаданные и текущие root-файлы механизма обновления (до их переустановки).
+{
+  printf 'date=%s\n' "$(date -Is)"
+  printf 'currentRef=%s\n' "$CURRENT_REF"
+  printf 'currentCommit=%s\n' "$(git_run rev-parse HEAD)"
+  printf 'targetTag=%s\n' "$TARGET_TAG"
+} >"$DEST/backup-meta.txt"
+cp -f "$UPDATE_SELF" "$DEST/factura-update.sh.backup" 2>/dev/null || true
+if [ -f "$SUDOERS_FILE" ]; then
+  cp -f "$SUDOERS_FILE" "$DEST/sudoers.backup" 2>/dev/null || true
+fi
 echo "$(date -Is) [$OPERATION_ID] резервная копия: $DEST"
 
 set_stage "получение исходного кода"
-git_run fetch --tags --force origin || finish_failed "git fetch не удался" false
+if ! FETCH_OUT="$(git_run fetch --tags --force origin 2>&1)"; then
+  FETCH_TAIL="$(git_sanitize "$FETCH_OUT")"
+  finish_failed "git fetch не удался${FETCH_TAIL:+: $FETCH_TAIL}" false
+fi
 git_run checkout "$TARGET_TAG" || finish_failed "git checkout $TARGET_TAG не удался" false
 ACTUAL="$(git_run rev-parse HEAD)"
 REMOTE="$(git_run rev-parse "refs/tags/$TARGET_TAG^{commit}")"
