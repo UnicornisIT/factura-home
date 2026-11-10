@@ -26,6 +26,9 @@ LOG_DIR="${LOG_DIR:-/var/log/factura}"
 SERVICE_NAME="${SERVICE_NAME:-factura}"
 UPDATE_SCRIPT="/usr/local/sbin/factura-update.sh"
 REPO_DEFAULT="UnicornisIT/factura-home"
+GITHUB_TOKEN=""
+GIT_ACCESS="https"
+SSH_COMMAND=""
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
@@ -154,20 +157,45 @@ detect_latest_tag() {
   printf '%s' "$tag"
 }
 
+install_deploy_key() { # SSH deploy key: копия в каталог данных, доступен только пользователю приложения
+  local key_dir="$DATA_DIR/keys"
+  [ -f "$DEPLOY_KEY_PATH" ] || die "Файл deploy key не найден: $DEPLOY_KEY_PATH"
+  mkdir -p "$key_dir"
+  # Копия необходима: сервис работает с ProtectHome=true и не может читать
+  # домашний каталог администратора на постоянной основе.
+  install -m 600 -o "$APP_USER" -g "$APP_USER" "$DEPLOY_KEY_PATH" "$key_dir/factura_deploy"
+  ssh-keyscan -t ed25519,ecdsa,rsa github.com >"$key_dir/known_hosts" 2>/dev/null ||
+    die "ssh-keyscan github.com не удался"
+  chown "$APP_USER:$APP_USER" "$key_dir/known_hosts"
+  chmod 600 "$key_dir/known_hosts"
+  SSH_COMMAND="ssh -i $key_dir/factura_deploy -o UserKnownHostsFile=$key_dir/known_hosts -o IdentitiesOnly=yes"
+  log "Deploy key установлен в $key_dir/factura_deploy (600, $APP_USER)"
+}
+
 clone_release() {
-  local ref="$1" auth_header=()
-  if [ -n "$GITHUB_TOKEN" ]; then
-    auth_header=(-c "http.extraHeader=Authorization: Bearer $GITHUB_TOKEN")
+  local ref="$1" url auth_header=()
+  if [ "$GIT_ACCESS" = ssh ]; then
+    url="git@github.com:$REPOSITORY.git"
+    auth_header=(-c "core.sshCommand=$SSH_COMMAND")
+  else
+    url="https://github.com/$REPOSITORY.git"
+    if [ -n "$GITHUB_TOKEN" ]; then
+      auth_header=(-c "http.extraHeader=Authorization: Bearer $GITHUB_TOKEN")
+    fi
   fi
   if [ -d "$APP_DIR/.git" ]; then
     log "Каталог $APP_DIR уже содержит git-репозиторий, переключаю на $ref"
     git -C "$APP_DIR" "${auth_header[@]}" fetch --tags --force origin
   else
     rm -rf "$APP_DIR"
-    git "${auth_header[@]}" clone --branch "$ref" \
-      "https://github.com/$REPOSITORY.git" "$APP_DIR"
-    # Токен не должен оставаться в .git/config: origin без учётных данных.
-    git -C "$APP_DIR" remote set-url origin "https://github.com/$REPOSITORY.git"
+    git "${auth_header[@]}" clone --branch "$ref" "$url" "$APP_DIR"
+  fi
+  # Токен не должен оставаться в .git/config: origin без учётных данных.
+  git -C "$APP_DIR" remote set-url origin "$url"
+  if [ "$GIT_ACCESS" = ssh ]; then
+    # sshCommand сохраняется в конфиге репозитория: скрипт обновления
+    # выполняет git от имени $APP_USER и берёт тот же deploy key.
+    git -C "$APP_DIR" config core.sshCommand "$SSH_COMMAND"
   fi
   git -C "$APP_DIR" checkout -f "$ref"
   chown -R "$APP_USER:$APP_USER" "$APP_DIR"
@@ -199,7 +227,7 @@ PORT=$PORT
 HOST=$HOST
 SERVER_UPDATE_ENABLED=$SERVER_UPDATE_ENABLED
 SERVER_UPDATE_REPOSITORY=$REPOSITORY
-SERVER_UPDATE_TOKEN=$GITHUB_TOKEN
+GITHUB_TOKEN=$GITHUB_TOKEN
 SERVER_UPDATE_SCRIPT=$UPDATE_SCRIPT
 SERVER_UPDATE_STATUS_PATH=$DATA_DIR/update-status.json
 EOF
@@ -209,11 +237,12 @@ EOF
 }
 
 install_service() {
-  # В ReadWritePaths, кроме данных и логов, входят каталоги скрипта обновления
-  # и юнита: без них install_deployment_files получит EROFS под ProtectSystem=full.
+  # ReadWritePaths сервиса — только данные и логи. Каталог скрипта обновления и
+  # юнитов не входит: их переустанавливает root-скрипт из transient unit
+  # systemd-run, вне mount namespace сервиса.
   sed -e "s|@APP_DIR@|$APP_DIR|g" \
     -e "s|@APP_USER@|$APP_USER|g" \
-    -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR $(dirname "$UPDATE_SCRIPT") /etc/systemd/system|g" \
+    -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR|g" \
     "$APP_DIR/deployment/factura.service" >/etc/systemd/system/$SERVICE_NAME.service
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME"
@@ -255,12 +284,18 @@ main() {
   log "Шаг 2/7. Репозиторий и версия"
   ask REPOSITORY "GitHub-репозиторий (owner/name)" "$REPO_DEFAULT"
   if git ls-remote "https://github.com/$REPOSITORY.git" HEAD >/dev/null 2>&1; then
-    GITHUB_TOKEN=""
+    log "Репозиторий публичный: токен не требуется"
   else
     warn "Репозиторий приватный или недоступен: потребуется токен (fine-grained PAT,"
     warn "права Contents: Read-only и Metadata: Read-only на $REPOSITORY)"
-    ask_secret GITHUB_TOKEN "GitHub-токен для чтения релизов и кода"
+    ask_secret GITHUB_TOKEN "GitHub-токен (GITHUB_TOKEN) для чтения релизов и кода"
     [ -n "$GITHUB_TOKEN" ] || die "Без токена приватный репозиторий недоступен"
+    if confirm "Использовать SSH deploy key для git-операций (вместо HTTPS+токен)?"; then
+      GIT_ACCESS="ssh"
+      ask DEPLOY_KEY_PATH "Путь к приватному SSH deploy key"
+      [ -f "$DEPLOY_KEY_PATH" ] || die "Файл deploy key не найден: $DEPLOY_KEY_PATH"
+      # Ключ устанавливается на шаге 5, после создания пользователя $APP_USER.
+    fi
   fi
   LATEST_TAG="$(detect_latest_tag)"
   ask RELEASE_REF "Тег/ветка для установки" "${LATEST_TAG:-main}"
@@ -300,14 +335,21 @@ main() {
   log "APP_SECRET сгенерирован автоматически"
 
   SERVER_UPDATE_ENABLED=false
-  if [ -n "$GITHUB_TOKEN" ] && confirm "Включить обновление до последнего релиза из админ-панели?"; then
+  if confirm "Включить обновление до последнего релиза из админ-панели?"; then
     SERVER_UPDATE_ENABLED=true
+    if [ -z "$GITHUB_TOKEN" ] && [ "$GIT_ACCESS" = ssh ]; then
+      warn "Репозиторий приватный: без GITHUB_TOKEN панель не сможет читать релизы GitHub API"
+    fi
   fi
 
   log "Шаг 5/7. Пользователь, каталоги и код"
   id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --home "$APP_PARENT" --shell /usr/sbin/nologin "$APP_USER"
   mkdir -p "$APP_PARENT" "$DATA_DIR/uploads" "$BACKUP_DIR" "$LOG_DIR" /run/lock
   chown -R "$APP_USER:$APP_USER" "$DATA_DIR" "$LOG_DIR"
+  if [ "$GIT_ACCESS" = ssh ]; then
+    install_deploy_key
+    chown -R "$APP_USER:$APP_USER" "$DATA_DIR/keys"
+  fi
   clone_release "$RELEASE_REF"
 
   log "Шаг 6/7. Конфигурация, сборка и миграции"

@@ -93,6 +93,27 @@ describe("fetchLatestRelease", () => {
     expect(await fetchLatestRelease("owner/repo", "")).toBeNull();
   });
 
+  it("reports invalid or insufficient GitHub credentials without leaking the token", async () => {
+    stubFetch({ ok: false, status: 401 });
+    await expect(
+      fetchLatestRelease("owner/repo", "secret-token")
+    ).rejects.toMatchObject({
+      code: "BAD_GATEWAY",
+      message: expect.stringContaining("401"),
+    });
+    __resetReleaseCacheForTests();
+    stubFetch({ ok: false, status: 403 });
+    await expect(fetchLatestRelease("owner/repo", "")).rejects.toMatchObject({
+      code: "BAD_GATEWAY",
+      message: expect.stringContaining("403"),
+    });
+    __resetReleaseCacheForTests();
+    stubFetch({ ok: false, status: 429 });
+    await expect(fetchLatestRelease("owner/repo", "")).rejects.toMatchObject({
+      code: "BAD_GATEWAY",
+    });
+  });
+
   it("fails closed on GitHub API errors and release without a tag", async () => {
     stubFetch({ ok: false, status: 500 });
     await expect(fetchLatestRelease("owner/repo", "")).rejects.toMatchObject({
@@ -135,6 +156,7 @@ describe("readUpdateStatus", () => {
         JSON.stringify({
           state: "success",
           tag: "v1.0.0",
+          stage: "завершено",
           operationId: "op-1",
           startedAt: "2026-11-09T10:00:00Z",
           finishedAt: "2026-11-09T10:05:00Z",
@@ -144,6 +166,7 @@ describe("readUpdateStatus", () => {
       expect(await readUpdateStatus(path)).toEqual({
         state: "success",
         tag: "v1.0.0",
+        stage: "завершено",
         operationId: "op-1",
         startedAt: "2026-11-09T10:00:00Z",
         finishedAt: "2026-11-09T10:05:00Z",
@@ -160,6 +183,7 @@ describe("isUpdateRunning", () => {
   ): UpdateOperationStatus => ({
     state,
     tag: null,
+    stage: null,
     operationId: null,
     startedAt,
     finishedAt: null,
@@ -221,6 +245,7 @@ describe("startUpdate guards", () => {
         JSON.stringify({
           state: "running",
           tag: null,
+          stage: "установка зависимостей",
           operationId: "op-1",
           startedAt: new Date().toISOString(),
           finishedAt: null,

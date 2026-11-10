@@ -17,10 +17,14 @@ Restart=on-failure
 RestartSec=5
 # NoNewPrivileges не включается: обновлению из панели нужна sudoers-запись
 # на /usr/local/sbin/factura-update.sh (см. deployment/sudoers-factura-update).
-# KillMode=process: systemctl restart внутри скрипта обновления убивает только
-# основной процесс, а сам скрипт (та же cgroup) доживает до healthcheck и
-# записи статуса. Права на запись в /usr/local/sbin и /etc/systemd/system
-# всё равно ограничены chmod: сервис работает не от root.
+# Обновление из панели переносит себя в transient unit systemd-run и не зависит
+# от рестарта сервиса; KillMode=process — второй рубеж: systemctl restart внутри
+# скрипта убивает только основной процесс, а скрипт (та же cgroup) доживает до
+# healthcheck и записи статуса.
+# ReadWritePaths ограничен данными и логами: каталоги root-скрипта обновления
+# (/usr/local/sbin) и юнитов (/etc/systemd/system) намеренно НЕ входят — сервис
+# не должен иметь возможности их перезаписать. Их переустанавливает root-скрипт
+# из transient unit, который работает вне mount namespace сервиса.
 KillMode=process
 PrivateTmp=true
 ProtectSystem=full

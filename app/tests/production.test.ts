@@ -45,15 +45,14 @@ describe("production configuration", () => {
       { DEV_ADMIN_ORIGIN: "http://localhost:3001" },
       { UPLOAD_DIR: "./dist/uploads" },
       { SERVER_UPDATE_ENABLED: "maybe" },
-      { SERVER_UPDATE_ENABLED: "true" },
       {
         SERVER_UPDATE_ENABLED: "true",
-        SERVER_UPDATE_TOKEN: "token",
+        GITHUB_TOKEN: "token",
         SERVER_UPDATE_SCRIPT: "relative/script.sh",
       },
       {
         SERVER_UPDATE_ENABLED: "true",
-        SERVER_UPDATE_TOKEN: "token",
+        GITHUB_TOKEN: "token",
         SERVER_UPDATE_REPOSITORY: "not a repo",
       },
     ]) {
@@ -66,7 +65,7 @@ describe("production configuration", () => {
     expect(
       run("await import('./api/lib/env.ts')", {
         SERVER_UPDATE_ENABLED: "true",
-        SERVER_UPDATE_TOKEN: "test-only-token",
+        GITHUB_TOKEN: "test-only-token",
         SERVER_UPDATE_REPOSITORY: "UnicornisIT/factura-home",
         SERVER_UPDATE_SCRIPT: "/usr/local/sbin/factura-update.sh",
         SERVER_UPDATE_STATUS_PATH: "/var/lib/factura/update-status.json",

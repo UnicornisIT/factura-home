@@ -1,6 +1,7 @@
 # /etc/sudoers.d/factura-update — устанавливается deployment/setup.sh.
 # Пользователю сервиса разрешён запуск ровно одного скрипта обновления от root.
+# Окружение вызывающего не пробрасывается (env_keep отсутствует): корень
+# установки скрипт определяет сам (/opt/factura/current или /opt/factura) либо
+# из root-конфига /etc/factura/update.env — непривилегированный пользователь
+# не может подсунуть произвольный каталог.
 factura ALL=(root) NOPASSWD: @UPDATE_SCRIPT@
-# FACTURA_APP_DIR пробрасывается из окружения сервиса: раскладка каталогов
-# может отличаться от /opt/factura/current (см. deployment/factura-update.sh).
-Defaults>@UPDATE_SCRIPT@ env_keep += "FACTURA_APP_DIR"

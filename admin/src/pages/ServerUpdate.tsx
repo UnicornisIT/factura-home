@@ -1,9 +1,26 @@
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, ExternalLink } from "lucide-react";
+import { Check, Loader2, RefreshCw, ExternalLink } from "lucide-react";
+
+// Этапы должны совпадать со стадиями deployment/factura-update.sh.
+const STAGES = [
+  "проверка окружения",
+  "проверка доступа к GitHub",
+  "загрузка информации о релизе",
+  "создание резервных копий",
+  "получение исходного кода",
+  "установка зависимостей",
+  "сборка приложения и админ-панели",
+  "миграция базы данных",
+  "установка deployment-файлов",
+  "перезапуск сервиса",
+  "проверка работоспособности",
+  "завершено",
+] as const;
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -25,13 +42,56 @@ function StateBadge({ state }: { state: "running" | "success" | "failed" }) {
   return <Badge variant="danger">ошибка</Badge>;
 }
 
+function StageProgress({ stage }: { stage: string | null }) {
+  const current = stage ? STAGES.indexOf(stage.toLowerCase() as never) : -1;
+  return (
+    <ol className="space-y-1">
+      {STAGES.map((name, index) => {
+        const done = current >= 0 && index < current;
+        const active = index === current || (current < 0 && index === 0);
+        return (
+          <li
+            key={name}
+            className={`flex items-center gap-2 text-xs ${
+              active
+                ? "font-medium text-slate-800"
+                : done
+                  ? "text-slate-500"
+                  : "text-slate-300"
+            }`}
+          >
+            {done ? (
+              <Check className="h-3 w-3 shrink-0 text-emerald-600" />
+            ) : active ? (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#5C2A2A]" />
+            ) : (
+              <span className="h-3 w-3 shrink-0 rounded-full border border-current" />
+            )}
+            <span className="capitalize">{name}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export default function ServerUpdate() {
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.system.updateStatus.useQuery(undefined, {
-    refetchInterval: (query) => (query.state.data?.running ? 5000 : false),
-  });
+  // Ждём подтверждения результата сервером: во время перезапуска API может
+  // временно не отвечать, и это не должно показываться как успех.
+  const [awaitingResult, setAwaitingResult] = useState(false);
+  const clickedAtRef = useRef(0);
+  const { data, isLoading, isError } = trpc.system.updateStatus.useQuery(
+    undefined,
+    {
+      refetchInterval: (query) =>
+        query.state.data?.running || awaitingResult ? 3000 : false,
+    },
+  );
   const startUpdate = trpc.system.startUpdate.useMutation({
     onSuccess: () => {
+      clickedAtRef.current = Date.now();
+      setAwaitingResult(true);
       void utils.system.updateStatus.invalidate();
     },
     onError: (e) => alert(e.message),
@@ -43,6 +103,23 @@ export default function ServerUpdate() {
   const latest = data?.latest ?? null;
   const upToDate =
     !!latest && !!currentVersion && latest.tag === `v${currentVersion}`;
+
+  // Операция, запущенная из этой сессии панели (по времени клика).
+  const op = data?.lastOperation ?? null;
+  const tracked =
+    op?.startedAt && Date.parse(op.startedAt) >= clickedAtRef.current - 5000
+      ? op
+      : null;
+
+  useEffect(() => {
+    if (!awaitingResult || !data || !op?.startedAt) return;
+    if (
+      Date.parse(op.startedAt) >= clickedAtRef.current - 5000 &&
+      !data.running
+    ) {
+      setAwaitingResult(false);
+    }
+  }, [awaitingResult, data, op]);
 
   const handleUpdate = () => {
     if (
@@ -83,6 +160,40 @@ export default function ServerUpdate() {
         </Card>
       )}
 
+      {awaitingResult && isError && (
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="pt-6 text-sm text-amber-800">
+            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+            Сервис перезапускается, API временно недоступен. Подключение
+            повторяется автоматически — не закрывайте страницу.
+          </CardContent>
+        </Card>
+      )}
+
+      {!awaitingResult && tracked && tracked.state !== "running" && (
+        <Card
+          className={`mb-6 ${
+            tracked.state === "success"
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-red-200 bg-red-50"
+          }`}
+        >
+          <CardContent className="pt-6 text-sm">
+            <div className="flex items-center gap-2 font-medium">
+              <StateBadge state={tracked.state} />
+              {tracked.state === "success"
+                ? `Обновление до ${tracked.tag ?? "новой версии"} подтверждено сервером`
+                : "Обновление завершилось ошибкой"}
+            </div>
+            {tracked.message && (
+              <p className="mt-1 text-xs text-slate-600 break-words">
+                {tracked.message}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
@@ -110,27 +221,30 @@ export default function ServerUpdate() {
               )}
             </div>
 
-            {data?.lastOperation && (
+            {running && (
+              <div className="border-t pt-3">
+                <div className="text-slate-500 mb-2">Текущий этап</div>
+                <StageProgress stage={op?.stage ?? null} />
+              </div>
+            )}
+
+            {op && !running && (
               <div className="border-t pt-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500">Последняя операция</span>
-                  <StateBadge state={data.lastOperation.state} />
+                  <StateBadge state={op.state} />
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500">Версия</span>
-                  <span className="font-mono text-xs">
-                    {data.lastOperation.tag ?? "—"}
-                  </span>
+                  <span className="font-mono text-xs">{op.tag ?? "—"}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500">Завершено</span>
-                  <span className="text-xs">
-                    {formatDate(data.lastOperation.finishedAt)}
-                  </span>
+                  <span className="text-xs">{formatDate(op.finishedAt)}</span>
                 </div>
-                {data.lastOperation.message && (
+                {op.message && (
                   <p className="text-xs text-slate-500 break-words">
-                    {data.lastOperation.message}
+                    {op.message}
                   </p>
                 )}
               </div>
@@ -148,11 +262,12 @@ export default function ServerUpdate() {
             )}
             {!latest && !data?.latestError && (
               <p className="text-slate-500">
-                В репозитории пока нет релизов. Создайте тег{" "}
+                В репозитории нет релизов, либо он недоступен с текущим{" "}
                 <code className="font-mono text-xs bg-slate-100 px-1 rounded">
-                  v*
+                  GITHUB_TOKEN
                 </code>
-                , и workflow опубликует релиз.
+                . Для приватного репозитория нужен fine-grained PAT (Contents:
+                Read-only).
               </p>
             )}
             {latest && (
@@ -196,36 +311,34 @@ export default function ServerUpdate() {
         <Button
           onClick={handleUpdate}
           disabled={
-            !enabled || running || !latest || upToDate || startUpdate.isPending
+            !enabled ||
+            running ||
+            awaitingResult ||
+            !latest ||
+            upToDate ||
+            startUpdate.isPending
           }
         >
           <RefreshCw
             className={`h-4 w-4 mr-2 ${running || startUpdate.isPending ? "animate-spin" : ""}`}
           />
-          {running || startUpdate.isPending
+          {running || awaitingResult || startUpdate.isPending
             ? "Обновление выполняется…"
             : latest
               ? `Обновить до ${latest.tag}`
               : "Обновить"}
         </Button>
-        {upToDate && (
+        {upToDate && !awaitingResult && (
           <span className="text-sm text-slate-500">
             Установлена последняя версия
           </span>
         )}
         {running && (
           <span className="text-sm text-slate-500">
-            Статус обновляется автоматически каждые 5 секунд
+            Статус обновляется автоматически каждые 3 секунды
           </span>
         )}
       </div>
-
-      {startUpdate.isSuccess && !running && (
-        <p className="mt-3 text-sm text-slate-600">
-          Обновление запущено. Сервис будет перезапущен; страница может
-          кратковременно не отвечать — обновите её через минуту.
-        </p>
-      )}
     </AdminLayout>
   );
 }

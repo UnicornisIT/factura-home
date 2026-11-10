@@ -16,6 +16,7 @@ export type LatestRelease = {
 export type UpdateOperationStatus = {
   state: "running" | "success" | "failed";
   tag: string | null;
+  stage: string | null;
   operationId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -46,7 +47,7 @@ export async function readCurrentVersion(): Promise<string | null> {
 
 export async function fetchLatestRelease(
   repository = env.serverUpdateRepository,
-  token = env.serverUpdateToken
+  token = env.githubToken
 ): Promise<LatestRelease | null> {
   if (releaseCache && Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS)
     return releaseCache.value;
@@ -61,9 +62,22 @@ export async function fetchLatestRelease(
     }
   );
   if (response.status === 404) {
+    // GitHub отвечает 404 и когда релизов нет, и когда приватный репозиторий
+    // недоступен с текущими учётными данными.
     releaseCache = { at: Date.now(), value: null };
     return null;
   }
+  if (response.status === 401)
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message:
+        "GitHub API ответил 401: GITHUB_TOKEN недействителен или отозван",
+    });
+  if (response.status === 403 || response.status === 429)
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `GitHub API ответил ${response.status}: недостаточно прав у токена или превышен лимит запросов`,
+    });
   if (!response.ok)
     throw new TRPCError({
       code: "BAD_GATEWAY",
@@ -118,6 +132,7 @@ export async function readUpdateStatus(
   return {
     state: record.state as UpdateOperationStatus["state"],
     tag: text(record.tag),
+    stage: text(record.stage),
     operationId: text(record.operationId),
     startedAt: text(record.startedAt),
     finishedAt: text(record.finishedAt),
@@ -152,6 +167,8 @@ export async function startUpdate(
       message: "Обновление сервера не включено (SERVER_UPDATE_ENABLED)",
     });
   // Путь фиксирован конфигурацией: пользовательский ввод сюда не попадает.
+  // Окружение скрипту не передаётся: sudoers его вырезает, корень установки
+  // скрипт определяет сам (см. deployment/factura-update.sh).
   if (!isAbsolute(scriptPath))
     throw new TRPCError({
       code: "PRECONDITION_FAILED",

@@ -77,11 +77,9 @@ if (serverUpdateEnabled) {
     throw new Error("SERVER_UPDATE_SCRIPT must be an absolute path");
   if (!isAbsolute(serverUpdateStatusPath))
     throw new Error("SERVER_UPDATE_STATUS_PATH must be an absolute path");
-  // Приватный репозиторий: без токена сервер не сможет читать релизы GitHub.
-  if (isProduction && !process.env.SERVER_UPDATE_TOKEN)
-    throw new Error(
-      "SERVER_UPDATE_TOKEN is required when SERVER_UPDATE_ENABLED=true in production"
-    );
+  // Учётные данные GitHub — отдельная переменная GITHUB_TOKEN. Публичный
+  // репозиторий работает без токена; ошибки доступа приватного (401/404)
+  // показывает панель, поэтому старт сервиса здесь не блокируется.
 }
 export const env = {
   isProduction,
@@ -97,7 +95,7 @@ export const env = {
   uploadDir: process.env.UPLOAD_DIR || "./uploads",
   serverUpdateEnabled,
   serverUpdateRepository,
-  serverUpdateToken: process.env.SERVER_UPDATE_TOKEN || "",
+  githubToken: process.env.GITHUB_TOKEN || "",
   serverUpdateScript,
   serverUpdateStatusPath,
 } as const;
