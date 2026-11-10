@@ -275,11 +275,23 @@ function CoverForm({
         </Field>
       </div>
       <ImageField
-        label="Главное фото (арочная форма; необязательно)"
+        label="Главное фото (арочная форма)"
         value={data.image ?? ""}
         onChange={(image) => set("image", image)}
       />
       <div className="grid grid-cols-2 gap-3">
+        <Field label="Компоновка главного экрана">
+          <select
+            className={selectClass}
+            value={data.layout ?? (data.image ? "split" : "center")}
+            onChange={(e) =>
+              set("layout", e.target.value as "split" | "center")
+            }
+          >
+            <option value="split">Текст слева и фото в арке</option>
+            <option value="center">По центру без фото</option>
+          </select>
+        </Field>
         <Field label="Позиция главного фото">
           <select
             className={selectClass}
@@ -292,17 +304,37 @@ function CoverForm({
             <option value="left">Слева</option>
           </select>
         </Field>
-        <Field label="Выравнивание (без главного фото)">
-          <select
-            className={selectClass}
-            value={data.align}
-            onChange={(e) => set("align", e.target.value as CoverData["align"])}
-          >
-            <option value="center">По центру</option>
-            <option value="left">Слева</option>
-          </select>
-        </Field>
       </div>
+      <Field label="Фокус главного фото (по вертикали)">
+        <select
+          className={selectClass}
+          value={data.imageFocus ?? "center"}
+          onChange={(e) =>
+            set("imageFocus", e.target.value as "top" | "center" | "bottom")
+          }
+        >
+          <option value="top">Верх</option>
+          <option value="center">Центр</option>
+          <option value="bottom">Низ</option>
+        </select>
+      </Field>
+      {(data.layout ?? (data.image ? "split" : "center")) === "split" &&
+        !data.image && (
+          <p className="text-sm text-amber-700">
+            Загрузите главное фото: без него в арке показывается декоративная
+            заглушка, а не фотография изделия.
+          </p>
+        )}
+      <Field label="Выравнивание (компоновка по центру)">
+        <select
+          className={selectClass}
+          value={data.align}
+          onChange={(e) => set("align", e.target.value as CoverData["align"])}
+        >
+          <option value="center">По центру</option>
+          <option value="left">Слева</option>
+        </select>
+      </Field>
       <ImageField
         label="Фоновое изображение (необязательно)"
         value={data.backgroundImage}
@@ -752,6 +784,8 @@ function CatalogForm({
         </select>
       </Field>
       <p className="text-sm text-slate-500">
+        Колонок не больше, чем коллекций: две категории занимают всю ширину
+        крупными карточками, при пяти и более включается адаптивная сетка.
         Карточки категорий берутся из раздела «Коллекции»: название, описание,
         обложка, порядок и видимость настраиваются там.
       </p>

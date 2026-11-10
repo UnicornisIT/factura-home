@@ -294,6 +294,8 @@ describe("blocks queries (SQLite)", () => {
     expect(cover.data.title).toBe("Декор для дома ручной работы");
     expect(cover.data.text).toBe("test hero text");
     expect(cover.data.buttonLink).toBe("#catalog");
+    expect(cover.data.layout).toBe("split");
+    expect(cover.data.features).toHaveLength(3);
     const about = all[1];
     if (about.type !== "about") throw new Error("expected about block");
     expect(about.data.text).toBe("test about");

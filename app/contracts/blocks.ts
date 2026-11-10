@@ -81,9 +81,17 @@ export type CoverData = {
   align: "left" | "center";
   /** Необязательные поля расширения (старые сохранённые блоки их не имеют). */
   eyebrow?: string;
-  /** Главное фото в арочной форме; без него обложка центрируется по-старому. */
+  /**
+   * Композиция главного экрана: «split» — текст слева и фото в арке справа,
+   * «center» — прежняя центрированная обложка. Без значения выводятся
+   * по наличию главного фото.
+   */
+  layout?: "split" | "center";
+  /** Главное фото в арочной форме; без него в арке декоративная заглушка. */
   image?: string;
   imagePosition?: "left" | "right";
+  /** Точка фокуса кадрирования главного фото (object-position). */
+  imageFocus?: "top" | "center" | "bottom";
   features?: IconFeature[];
 };
 
@@ -249,8 +257,10 @@ export const BLOCK_LIBRARY: BlockLibraryEntry[] = [
       buttonLink: "#catalog",
       backgroundImage: "",
       align: "left",
+      layout: "split",
       image: "",
       imagePosition: "right",
+      imageFocus: "center",
       features: [
         { icon: "hand", title: "Ручная работа" },
         { icon: "leaf", title: "Натуральные материалы" },

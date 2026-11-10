@@ -155,3 +155,49 @@ export function LeafDecor({ className }: { className?: string }) {
     </svg>
   );
 }
+
+export type MessengerKind = "telegram" | "whatsapp" | "vk" | "mail";
+
+const MESSENGER_PATHS: Record<MessengerKind, React.ReactNode> = {
+  telegram: (
+    <path d="M21.6 4.1 18.9 18.9c-.2 1-.8 1.3-1.65.85l-4.35-3.2-2.1 2.02c-.23.23-.43.43-.87.43l.31-4.43L18.35 6.6c.35-.31-.08-.49-.54-.18l-9.93 6.25-4.28-1.34c-.93-.29-.95-.93.2-1.38L20.4 3.06c.78-.29 1.46.18 1.2 1.04Z" />
+  ),
+  whatsapp: (
+    <path d="M12 2a10 10 0 0 0-8.62 15.06L2 22l5.06-1.33A10 10 0 1 0 12 2Zm5.35 14.13c-.22.63-1.3 1.21-1.79 1.26-.49.05-.94.22-3.17-.66-2.68-1.06-4.38-3.78-4.51-3.95-.13-.18-1.08-1.44-1.08-2.74s.68-1.94.92-2.2c.24-.27.53-.33.7-.33l.5.01c.16.01.38-.06.6.45.22.53.75 1.82.81 1.95.07.13.11.29.02.47-.09.18-.13.28-.26.44l-.39.45c-.13.13-.26.28-.11.54.15.26.66 1.09 1.41 1.76.97.86 1.79 1.13 2.05 1.26.26.13.41.11.56-.07.16-.17.66-.77.83-1.03.17-.26.35-.22.59-.13.24.09 1.55.73 1.81.86.26.13.44.2.5.31.06.11.06.63-.19 1.26Z" />
+  ),
+  vk: (
+    <path d="M12.83 17.2c-5.1 0-8.02-3.5-8.14-9.32h2.56c.08 4.27 1.97 6.08 3.46 6.45V7.88h2.4v3.7c1.48-.16 3.03-1.84 3.55-3.7h2.4c-.4 2.29-2.08 3.97-3.27 4.66 1.19.56 3.1 2.02 3.83 4.66h-2.63c-.57-1.76-1.98-3.13-3.86-3.31v3.31h-.3Z" />
+  ),
+  mail: (
+    <>
+      <rect x="2.5" y="4.5" width="19" height="15" rx="2.5" />
+      <path d="m3 7 9 6.5L21 7" />
+    </>
+  ),
+};
+
+/** Логотипы мессенджеров для кнопок блока контактов. */
+export function MessengerIcon({
+  kind,
+  size = 18,
+}: {
+  kind: MessengerKind;
+  size?: number;
+}) {
+  const filled = kind !== "mail";
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={filled ? "currentColor" : "none"}
+      stroke={filled ? "none" : "currentColor"}
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {MESSENGER_PATHS[kind]}
+    </svg>
+  );
+}

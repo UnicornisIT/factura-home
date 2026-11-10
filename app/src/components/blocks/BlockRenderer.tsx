@@ -1,7 +1,12 @@
 import { useState, type CSSProperties } from "react";
 import type { Block, BlockType } from "@contracts/blocks";
 import { foregroundFor, videoEmbedUrl } from "@contracts/blocks";
-import { Icon, LeafDecor } from "@/components/Icon";
+import {
+  Icon,
+  LeafDecor,
+  MessengerIcon,
+  type MessengerKind,
+} from "@/components/Icon";
 
 export type CatalogCollection = {
   id: number;
@@ -141,8 +146,32 @@ function CoverBlock({
       )
     ) : null;
 
-  // Без главного фото — прежняя центрированная обложка (совместимость).
-  if (!data.image) {
+  const content = (
+    <>
+      {data.eyebrow && <div className="cover-eyebrow">{data.eyebrow}</div>}
+      <h1>{data.title}</h1>
+      {data.text && <p>{data.text}</p>}
+      {button}
+      {data.features && data.features.length > 0 && (
+        <div className="hero-features">
+          {data.features.map((feature, index) => (
+            <div className="hero-feature" key={index}>
+              <span className="hero-feature-icon">
+                <Icon name={feature.icon} size={18} />
+              </span>
+              <span>{feature.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  // Явная компоновка из админки; без значения — по наличию главного фото.
+  const layout = data.layout ?? (data.image ? "split" : "center");
+
+  // Центрированная обложка — прежний вид для блоков без главного фото.
+  if (layout === "center") {
     return (
       <section
         className={`hero block-cover${data.backgroundImage ? " has-bg" : ""}${
@@ -156,33 +185,31 @@ function CoverBlock({
         }
       >
         {data.backgroundImage && <div className="cover-overlay" />}
-        <div className="cover-content">
-          {data.eyebrow && <div className="cover-eyebrow">{data.eyebrow}</div>}
-          <h1>{data.title}</h1>
-          {data.text && <p>{data.text}</p>}
-          {button}
-          {data.features && data.features.length > 0 && (
-            <div className="hero-features">
-              {data.features.map((feature, index) => (
-                <div className="hero-feature" key={index}>
-                  <span className="hero-feature-icon">
-                    <Icon name={feature.icon} size={20} />
-                  </span>
-                  <span>{feature.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <div className="cover-content">{content}</div>
       </section>
     );
   }
 
   const imageLeft = data.imagePosition === "left";
+  const focus =
+    data.imageFocus && data.imageFocus !== "center"
+      ? `center ${data.imageFocus}`
+      : undefined;
   const photo = (
     <div className="hero-photo">
       <div className="hero-photo-frame">
-        <img src={data.image} alt={data.title} fetchPriority="high" />
+        {data.image ? (
+          <img
+            src={data.image}
+            alt={data.title}
+            fetchPriority="high"
+            style={focus ? { objectPosition: focus } : undefined}
+          />
+        ) : (
+          <div className="hero-photo-empty" aria-hidden="true">
+            <LeafDecor className="hero-empty-leaf" />
+          </div>
+        )}
       </div>
       <LeafDecor className="hero-leaf hero-leaf-top" />
       <LeafDecor className="hero-leaf hero-leaf-bottom" />
@@ -202,27 +229,17 @@ function CoverBlock({
       }
     >
       {data.backgroundImage && <div className="cover-overlay" />}
-      <div className="hero-inner">
-        <div className="hero-text">
-          {data.eyebrow && <div className="cover-eyebrow">{data.eyebrow}</div>}
-          <h1>{data.title}</h1>
-          {data.text && <p>{data.text}</p>}
-          {button}
-          {data.features && data.features.length > 0 && (
-            <div className="hero-features">
-              {data.features.map((feature, index) => (
-                <div className="hero-feature" key={index}>
-                  <span className="hero-feature-icon">
-                    <Icon name={feature.icon} size={20} />
-                  </span>
-                  <span>{feature.title}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {photo}
+      {/* Многослойный декор: тёплые пятна света и размытые тени листвы. */}
+      <div className="hero-decor" aria-hidden="true">
+        <span className="hd-bokeh hd-bokeh-1" />
+        <span className="hd-bokeh hd-bokeh-2" />
+        <LeafDecor className="hd-blur hd-blur-top" />
+        <LeafDecor className="hd-blur hd-blur-bottom" />
       </div>
+      <div className="hero-text-wrap">
+        <div className="hero-text">{content}</div>
+      </div>
+      {photo}
     </section>
   );
 }
@@ -420,12 +437,19 @@ function CatalogBlock({
   ctx: BlockContextValue;
 }) {
   const { data } = block;
-  const columns = data.columns ?? 4;
+  const requested = data.columns ?? 4;
+  const count = ctx.collections.length;
+  // Колонок не больше, чем коллекций: две категории занимают всю ширину,
+  // а при пяти и более включается адаптивная сетка.
+  const gridClass =
+    count > 4
+      ? "cols-auto"
+      : `cols-${count === 0 ? requested : Math.min(requested, count)}`;
   return (
     <section className="collections" id={id}>
       <h2 className="section-title">{data.title}</h2>
       {data.text && <p className="section-subtitle">{data.text}</p>}
-      <div className={`collections-grid cols-${columns}`}>
+      <div className={`collections-grid ${gridClass}`}>
         {ctx.collections.map(collection => (
           <div className="collection-card" key={collection.id}>
             <button
@@ -445,13 +469,31 @@ function CatalogBlock({
                   />
                 )}
               </span>
-              <span className="collection-label">{collection.title}</span>
-              {collection.description && (
-                <span className="collection-desc">
-                  {collection.description}
+              <span className="collection-body">
+                <span className="collection-titles">
+                  <span className="collection-label">{collection.title}</span>
+                  {collection.description && (
+                    <span className="collection-desc">
+                      {collection.description}
+                    </span>
+                  )}
                 </span>
-              )}
-              <span className="collection-cta">Смотреть →</span>
+                <span className="collection-arrow" aria-hidden="true">
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M5 12h14" />
+                    <path d="m12 5 7 7-7 7" />
+                  </svg>
+                </span>
+              </span>
             </button>
           </div>
         ))}
@@ -500,7 +542,7 @@ function ProductsBlock({
           </button>
         ))}
       </div>
-      <div className="products-grid">
+      <div className="products-grid" key={slug ?? "all"}>
         {visible.map(product => (
           <ProductCard
             key={product.id}
@@ -571,15 +613,17 @@ function ContactsBlock({
   ctx: BlockContextValue;
 }) {
   const { data } = block;
-  const links = [
-    { href: ctx.contacts.telegram, label: "Telegram" },
-    { href: ctx.contacts.whatsapp, label: "WhatsApp" },
-    { href: ctx.contacts.vk, label: "ВКонтакте" },
+  const allLinks: { href: string; label: string; kind: MessengerKind }[] = [
+    { href: ctx.contacts.telegram, label: "Telegram", kind: "telegram" },
+    { href: ctx.contacts.whatsapp, label: "WhatsApp", kind: "whatsapp" },
+    { href: ctx.contacts.vk, label: "ВКонтакте", kind: "vk" },
     {
       href: ctx.contacts.email ? `mailto:${ctx.contacts.email}` : "",
       label: ctx.contacts.email,
+      kind: "mail",
     },
-  ].filter(link => link.href && link.label);
+  ];
+  const links = allLinks.filter(link => link.href && link.label);
   return (
     <section className="contacts" id={id}>
       <div className="contacts-inner">
@@ -593,7 +637,7 @@ function ContactsBlock({
             <div className="contacts-buttons">
               {links.map(link => (
                 <a
-                  className="btn btn-contact"
+                  className={`btn btn-contact ct-${link.kind}`}
                   key={link.label}
                   href={link.href}
                   target={
@@ -601,6 +645,10 @@ function ContactsBlock({
                   }
                   rel="noopener"
                 >
+                  <MessengerIcon
+                    kind={link.kind}
+                    size={link.kind === "vk" ? 21 : 18}
+                  />
                   {link.label}
                 </a>
               ))}
@@ -644,12 +692,14 @@ function ProductCard({
         )}
       </div>
       <div className="card-body">
-        <div className="card-name">{product.name}</div>
-        {product.material && (
-          <div className="card-material">{product.material}</div>
-        )}
-        <div className="card-price">
-          {product.price.toLocaleString("ru-RU")} ₽
+        <div className="card-info">
+          <div className="card-name">{product.name}</div>
+          {product.material && (
+            <div className="card-material">{product.material}</div>
+          )}
+          <div className="card-price">
+            {product.price.toLocaleString("ru-RU")} ₽
+          </div>
         </div>
         <button
           className={`card-buy ${added ? "added" : ""}`}
@@ -660,7 +710,37 @@ function ProductCard({
           }}
           aria-label={`Добавить «${product.name}» в корзину`}
         >
-          {added ? "Добавлено ✓" : "В корзину"}
+          {added ? (
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+          ) : (
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="8" cy="21" r="1" />
+              <circle cx="19" cy="21" r="1" />
+              <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+            </svg>
+          )}
         </button>
       </div>
     </div>

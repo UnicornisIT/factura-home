@@ -58,8 +58,10 @@ export const blockDataSchemas = {
     backgroundImage: imageUrl,
     align,
     eyebrow: z.string().max(200).optional(),
+    layout: z.enum(["split", "center"]).optional(),
     image: imageUrl.optional(),
     imagePosition: z.enum(["left", "right"]).optional(),
+    imageFocus: z.enum(["top", "center", "bottom"]).optional(),
     features: z.array(iconFeature).max(4).optional(),
   }),
   text: z.object({
