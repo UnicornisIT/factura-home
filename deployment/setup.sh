@@ -66,6 +66,7 @@ require_root() {
 }
 
 require_os() {
+  # shellcheck disable=SC1091
   . /etc/os-release
   case "${ID:-}" in
     ubuntu | debian) log "ОС: $PRETTY_NAME" ;;
@@ -243,15 +244,15 @@ install_service() {
   sed -e "s|@APP_DIR@|$APP_DIR|g" \
     -e "s|@APP_USER@|$APP_USER|g" \
     -e "s|@RW_PATHS@|$DATA_DIR $LOG_DIR|g" \
-    "$APP_DIR/deployment/factura.service" >/etc/systemd/system/$SERVICE_NAME.service
+    "$APP_DIR/deployment/factura.service" >"/etc/systemd/system/$SERVICE_NAME.service"
   systemctl daemon-reload
   systemctl enable --now "$SERVICE_NAME"
   log "Сервис $SERVICE_NAME запущен"
 }
 
 healthcheck() {
-  local url="http://${HOST}:${PORT}/api/trpc/ping" i
-  for i in $(seq 1 30); do
+  local url="http://${HOST}:${PORT}/api/trpc/ping" _
+  for _ in $(seq 1 30); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       log "Healthcheck OK: $url"
       return 0
@@ -265,10 +266,10 @@ healthcheck() {
 install_updater() {
   install -o root -g root -m 755 "$APP_DIR/deployment/factura-update.sh" "$UPDATE_SCRIPT"
   sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SCRIPT|" \
-    "$APP_DIR/deployment/sudoers-factura-update" >/etc/sudoers.d/$SERVICE_NAME-update
-  chmod 440 /etc/sudoers.d/$SERVICE_NAME-update
-  visudo -cf /etc/sudoers.d/$SERVICE_NAME-update || {
-    rm -f /etc/sudoers.d/$SERVICE_NAME-update
+    "$APP_DIR/deployment/sudoers-factura-update" >"/etc/sudoers.d/$SERVICE_NAME-update"
+  chmod 440 "/etc/sudoers.d/$SERVICE_NAME-update"
+  visudo -cf "/etc/sudoers.d/$SERVICE_NAME-update" || {
+    rm -f "/etc/sudoers.d/$SERVICE_NAME-update"
     die "sudoers-файл не прошёл проверку, автообновление не установлено"
   }
   log "Установлены $UPDATE_SCRIPT и /etc/sudoers.d/$SERVICE_NAME-update"
@@ -354,8 +355,13 @@ main() {
 
   log "Шаг 6/7. Конфигурация, сборка и миграции"
   write_env_file
-  # shellcheck disable=SC1090
-  set -a; . "$APP_DIR/app/.env"; set +a
+  # Файл создан этим скриптом и принадлежит root — исполнение безопасно
+  # (в отличие от скрипта обновления, .env здесь читается на доверенном шаге
+  # первоначальной установки).
+  set -a
+  # shellcheck disable=SC1091
+  . "$APP_DIR/app/.env"
+  set +a
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm ci"
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/admin' && npm ci"
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm run build"
