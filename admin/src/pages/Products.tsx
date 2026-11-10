@@ -60,6 +60,7 @@ export default function Products() {
 
   const [editing, setEditing] = useState<ProductForm | null>(null);
   const [open, setOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const invalidate = async () => {
     await utils.products.listAll.invalidate();
@@ -323,6 +324,7 @@ export default function Products() {
                   placeholder="/img/p1.png или /uploads/…"
                 />
                 <ImageUpload
+                  onBusyChange={setUploading}
                   onUpload={(image) =>
                     setEditing((current) =>
                       current ? { ...current, image } : current,
@@ -365,6 +367,7 @@ export default function Products() {
               onClick={submit}
               disabled={
                 !editing?.name.trim() ||
+                uploading ||
                 saveProduct.isPending ||
                 createProduct.isPending
               }
