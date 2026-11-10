@@ -95,17 +95,6 @@ export default function Access() {
                 onChange={(e) => setNewTelegramId(e.target.value)}
                 placeholder="123456789"
               />
-              <p className="text-xs text-slate-500 mt-1">
-                Узнать свой Telegram ID можно у{" "}
-                <a
-                  href="https://t.me/userinfobot"
-                  target="_blank"
-                  rel="noopener"
-                  className="text-[#5C2A2A] hover:underline"
-                >
-                  @userinfobot
-                </a>
-              </p>
             </div>
             <div className="w-44">
               <Label>Роль</Label>
@@ -129,6 +118,17 @@ export default function Access() {
               {addMutation.isPending ? "Добавление…" : "+ Добавить"}
             </Button>
           </form>
+          <p className="text-xs text-slate-500 mt-2">
+            Узнать свой Telegram ID можно у{" "}
+            <a
+              href="https://t.me/userinfobot"
+              target="_blank"
+              rel="noopener"
+              className="text-[#5C2A2A] hover:underline"
+            >
+              @userinfobot
+            </a>
+          </p>
         </CardContent>
       </Card>
 
