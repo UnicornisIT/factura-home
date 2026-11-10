@@ -69,12 +69,19 @@ sudo sed -e 's|@APP_DIR@|/opt/factura|g' \
 sudo systemd-analyze verify "$TMP" && sudo chmod 644 "$TMP" && \
   sudo mv -f "$TMP" /etc/systemd/system/factura.service || sudo rm -f "$TMP"
 
-# Sudoers (без env_keep, один разрешённый скрипт):
+# Sudoers (без env_keep, один разрешённый скрипт): сначала временный файл,
+# проверка visudo, владелец и права — и только затем атомарная замена рабочего
+# файла. При ошибке проверки прежний sudoers остаётся нетронутым.
+STMP=$(sudo mktemp /etc/sudoers.d/.factura-update-XXXXXX)
 sudo sed -e 's|@UPDATE_SCRIPT@|/usr/local/sbin/factura-update.sh|' \
-  /opt/factura/deployment/sudoers-factura-update | sudo tee /etc/sudoers.d/factura-update >/dev/null
-sudo chown root:root /etc/sudoers.d/factura-update
-sudo chmod 440 /etc/sudoers.d/factura-update
-sudo visudo -cf /etc/sudoers.d/factura-update
+  /opt/factura/deployment/sudoers-factura-update | sudo tee "$STMP" >/dev/null
+sudo chown root:root "$STMP" && sudo chmod 440 "$STMP"
+if sudo visudo -cf "$STMP"; then
+  sudo mv -f "$STMP" /etc/sudoers.d/factura-update
+else
+  sudo rm -f "$STMP"
+  echo "sudoers НЕ заменён: проверка visudo не прошла, прежний файл сохранён" >&2
+fi
 ```
 
 Если каталог установки отличается от `/opt/factura` и `/opt/factura/current`,
@@ -108,6 +115,14 @@ sudo cat /var/lib/factura/update-status.json
 # ожидалось: {"state":"success",...,"message":"already up to date",...}
 sudo tail -n 30 /var/log/factura/update.log
 ```
+
+Внимание: запуск из SSH не проверяет передачу обновления из cgroup сервиса в
+transient unit systemd (в этом сценарии скрипт завершается на стадии «уже
+установлена последняя версия»). Полная проверка настоящего handoff, sudoers и
+прав доступа выполняется интеграционным сценарием
+`deployment/tests/systemd-integration.sh` на изолированной тестовой VM — см.
+`docs/systemd-integration-test.md`. На production этот сценарий запускать
+нельзя.
 
 ## Откат процедуры
 

@@ -35,6 +35,12 @@
 #   FACTURA_BACKUP_DIR     каталог резервных копий (/var/backups/factura)
 #   FACTURA_UPDATE_LOG     журнал (/var/log/factura/update.log)
 #   FACTURA_LOCK_FILE      файл блокировки (/run/lock/factura-update.lock)
+#   FACTURA_DISABLE_SQLITE_CLI=1  резервная копия SQLite только через
+#                          better-sqlite3 (даже если sqlite3 CLI установлен)
+#   FACTURA_UPDATE_SYSTEMD_ENV    строки "K=V" (по одной на строку) для
+#                          --setenv transient unit (например, PATH стенда)
+#   FACTURA_UPDATE_FORCE_DETACH=1 тестовый крючок: пытаться передать обновление
+#                          в transient unit даже вне cgroup сервиса
 # Ошибки фиксируются в статусе SERVER_UPDATE_STATUS_PATH (JSON, атомарно),
 # включая предварительные проверки, — панель всегда видит реальную причину.
 set -euo pipefail
@@ -273,10 +279,20 @@ if [ "${FACTURA_UPDATE_DETACHED:-0}" != "1" ] &&
   command -v systemd-run >/dev/null 2>&1; then
   exec 9>&-
   echo "$(date -Is) [$OPERATION_ID] запуск в transient unit factura-update"
+  # FACTURA_UPDATE_SYSTEMD_ENV (только root-контекст: sudo окружение вырезает,
+  # источник — /etc/factura/update.env): по строке "K=V" на каждой строке,
+  # передаётся в transient unit через --setenv (например, PATH тестового стенда).
+  EXTRA_SETENV=()
+  if [ -n "${FACTURA_UPDATE_SYSTEMD_ENV:-}" ]; then
+    while IFS= read -r __kv; do
+      [ -n "$__kv" ] && EXTRA_SETENV+=(--setenv="$__kv")
+    done <<<"$FACTURA_UPDATE_SYSTEMD_ENV"
+  fi
   if systemd-run --quiet --collect --unit=factura-update \
     --setenv=FACTURA_UPDATE_DETACHED=1 \
     --setenv=FACTURA_APP_DIR="$APP_DIR" \
     --setenv=FACTURA_SERVICE="$SERVICE" \
+    ${EXTRA_SETENV[@]+"${EXTRA_SETENV[@]}"} \
     "$UPDATE_SELF"; then
     DONE=1
     exit 0
@@ -374,20 +390,33 @@ sqlite_backup() { # sqlite_backup src dest — SQLite Backup API + integrity_che
   # Простое cp для WAL-базы при активной записи недопустимо: копия может
   # оказаться несогласованной. Используется .backup (sqlite3 CLI) или Backup
   # API better-sqlite3, целостность копии проверяется integrity_check.
-  # Выполняется от имени пользователя приложения: файлы -wal/-shm остаются
-  # в его владении и сервис не теряет доступ к базе.
-  local src="$1" dest="$2" out helper rc=0
-  if command -v sqlite3 >/dev/null 2>&1; then
-    out="$(run_in / "sqlite3 '$src' \".backup '$dest'\" && sqlite3 '$dest' 'PRAGMA integrity_check;' | head -n 1")" || return 1
-    if [ "$out" != "ok" ]; then
+  #
+  # Живая БД открывается только от имени APP_USER — владельцы db/-wal/-shm не
+  # меняются. Каталог резервных копий root-only (700), и APP_USER не может в
+  # него войти, поэтому копия создаётся в промежуточном каталоге (mktemp -d,
+  # 700, владелец — APP_USER), а в dest её переносит вызывающий (root).
+  local src="$1" dest="$2" staging out rc=0
+  staging="$(mktemp -d)" || return 1
+  chmod 700 "$staging"
+  chown "$APP_USER" "$staging" 2>/dev/null || true
+  local tmpdb="$staging/db.sqlite"
+  if [ "${FACTURA_DISABLE_SQLITE_CLI:-0}" != "1" ] &&
+    command -v sqlite3 >/dev/null 2>&1; then
+    out="$(run_in / "sqlite3 '$src' \".backup '$tmpdb'\" && sqlite3 '$tmpdb' 'PRAGMA integrity_check;' | head -n 1")" || rc=1
+    if [ $rc -eq 0 ] && [ "$out" != "ok" ]; then
       echo "$(date -Is) [$OPERATION_ID] копия SQLite не прошла integrity_check: ${out:-<пусто>}"
-      return 1
+      rc=1
     fi
-    return 0
-  fi
-  # sqlite3 CLI отсутствует: Backup API через better-sqlite3 (зависимость приложения).
-  helper="${TMPDIR:-/tmp}/factura-sqlite-backup-$$.js"
-  cat >"$helper" <<'NODE'
+  else
+    # sqlite3 CLI отсутствует: Backup API через better-sqlite3 из node_modules
+    # приложения. Helper создаётся вне APP_DIR/app (mktemp — непредсказуемое
+    # имя, 600), поэтому модуль резолвится через NODE_PATH: require() ищет
+    # node_modules от каталога скрипта, а не от cwd.
+    echo "$(date -Is) [$OPERATION_ID] резервная копия SQLite через better-sqlite3 Backup API (sqlite3 CLI недоступен)"
+    local helper
+    helper="$(mktemp "$staging/helper-XXXXXXXX.js")" || rc=1
+    if [ $rc -eq 0 ]; then
+      cat >"$helper" <<'NODE'
 const Database = require("better-sqlite3");
 const [src, dest] = process.argv.slice(2);
 const db = new Database(src, { readonly: true, fileMustExist: true });
@@ -404,10 +433,15 @@ db.backup(dest)
     process.exit(1);
   });
 NODE
-  chmod 644 "$helper" 2>/dev/null || true
-  chown "$APP_USER" "$helper" 2>/dev/null || true
-  run_in "$APP_DIR/app" "node '$helper' '$src' '$dest'" || rc=1
-  rm -f "$helper"
+      chmod 600 "$helper"
+      chown "$APP_USER" "$helper" 2>/dev/null || true
+      run_in / "NODE_PATH='$APP_DIR/app/node_modules' node '$helper' '$src' '$tmpdb'" || rc=1
+    fi
+  fi
+  if [ $rc -eq 0 ]; then
+    mv -f "$tmpdb" "$dest" || rc=1
+  fi
+  rm -rf "$staging"
   return $rc
 }
 
@@ -416,13 +450,6 @@ backup_database() { # backup_database dest_dir
   if [ "$DB_DIALECT" = sqlite ]; then
     local db="${SQLITE_PATH:-$APP_DIR/app/dev.db}"
     [[ "$db" != /* ]] && db="$APP_DIR/app/$db"
-    # Каталог резервной копии root-only (700): файл создаётся заранее и
-    # передаётся пользователю приложения, чтобы backup писал именно он.
-    if [ "$(id -u)" -eq 0 ]; then
-      install -o "$APP_USER" -g "$APP_USER" -m 600 /dev/null "$dest/db.sqlite" || return 1
-    else
-      install -m 600 /dev/null "$dest/db.sqlite" || return 1
-    fi
     sqlite_backup "$db" "$dest/db.sqlite" || return 1
     chown root:root "$dest/db.sqlite" 2>/dev/null || true
     chmod 600 "$dest/db.sqlite"

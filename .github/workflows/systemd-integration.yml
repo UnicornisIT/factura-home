@@ -1,0 +1,33 @@
+name: Systemd integration
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  systemd-integration:
+    # Одноразовый runner = безопасная среда для сценария: настоящие systemd,
+    # sudoers, Unix-пользователь и права ФС (сценарий отказывается работать
+    # при маркерах production-установки).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      # better-sqlite3 нужен для проверки резервного копирования без sqlite3 CLI.
+      - run: npm ci --prefix app
+      - name: Prerequisites
+        run: |
+          if ! command -v sqlite3 >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq sqlite3
+          fi
+      - name: Integration scenario (real systemd, sudoers, users, permissions)
+        run: |
+          sudo env \
+            REPO_ROOT="$GITHUB_WORKSPACE" \
+            NODE_BIN="$(command -v node)" \
+            bash deployment/tests/systemd-integration.sh --i-am-on-a-disposable-vm

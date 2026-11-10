@@ -10,6 +10,7 @@ import {
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -597,6 +598,50 @@ describeBash("factura-update.sh", () => {
       expect(status.message).toContain("резервную копию БД");
       expect(fx.head()).toBe("v0.0.1");
       expect(await fx.readStubLog()).not.toContain("npm ci");
+    });
+  }, 120000);
+
+  it("без sqlite3 CLI: WAL-бэкап через better-sqlite3 (NODE_PATH) с integrity_check", async () => {
+    await withFixture(async fx => {
+      // Реальная WAL-база вместо пустого файла фикстуры.
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(join(fx.dir, "db.sqlite"));
+      db.pragma("journal_mode = WAL");
+      db.exec("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1);");
+      // Незафиксированная транзакция держит WAL активной: согласованная копия
+      // не должна её увидеть.
+      db.exec("BEGIN IMMEDIATE");
+      db.prepare("INSERT INTO t VALUES (999)").run();
+      // Fallback резолвит better-sqlite3 через NODE_PATH=$APP_DIR/app/node_modules:
+      // симлинк на реальные зависимости репозитория (untracked — git status чист).
+      await symlink(
+        join(repoRoot, "app", "node_modules"),
+        join(fx.appDir, "app", "node_modules"),
+        "dir"
+      );
+      try {
+        const result = fx.run({ FACTURA_DISABLE_SQLITE_CLI: "1" });
+        expect(result.status).toBe(0);
+        const status = await fx.readStatus();
+        expect(status.state).toBe("success");
+        expect(status.tag).toBe("v0.0.2");
+        expect(await fx.readLog()).toContain("better-sqlite3 Backup API");
+        // Проверка копии: целостность и согласованность WAL-снимка.
+        const backups = await readdir(join(fx.dir, "backups"));
+        expect(backups.length).toBe(1);
+        const copy = new Database(
+          join(fx.dir, "backups", backups[0]!, "db.sqlite"),
+          { readonly: true }
+        );
+        expect(copy.pragma("integrity_check", { simple: true })).toBe("ok");
+        expect(copy.prepare("SELECT count(*) AS n FROM t").get()).toEqual({
+          n: 1,
+        });
+        copy.close();
+      } finally {
+        db.exec("ROLLBACK");
+        db.close();
+      }
     });
   }, 120000);
 
