@@ -554,9 +554,13 @@ backup_database "$DEST" || finish_failed "Не удалось создать р�
 # в uploads создаются один раз и не перезаписываются на месте; при невозможности
 # hardlink (другая ФС) выполняется полная копия.
 if [ -d "$UPLOADS_DIR" ]; then
-  cp -al "$UPLOADS_DIR" "$DEST/uploads" 2>/dev/null ||
+  if ! cp -al "$UPLOADS_DIR" "$DEST/uploads" 2>/dev/null; then
+    # После неудачного cp -al мог остаться частичный каталог: убираем его,
+    # иначе cp -a скопирует uploads внутрь него (вложенная структура).
+    rm -rf "$DEST/uploads"
     cp -a "$UPLOADS_DIR" "$DEST/uploads" ||
-    finish_failed "Не удалось создать резервную копию изображений ($UPLOADS_DIR)" false
+      finish_failed "Не удалось создать резервную копию изображений ($UPLOADS_DIR)" false
+  fi
 fi
 # Метаданные и текущие root-файлы механизма обновления (до их переустановки).
 {
