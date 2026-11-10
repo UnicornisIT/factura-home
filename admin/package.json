@@ -10,6 +10,7 @@
     "preview": "vite preview --port 3001",
     "lint": "node ../app/node_modules/eslint/bin/eslint.js --config ../app/eslint.config.js .",
     "check": "tsc -b",
+    "test": "vitest run",
     "format": "node ../app/node_modules/prettier/bin/prettier.cjs --write .",
     "format:check": "node ../app/node_modules/prettier/bin/prettier.cjs --check ."
   },
@@ -39,16 +40,21 @@
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.9",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
+    "jsdom": "^31.0.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.3",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+    "vitest": "^4.0.16"
   },
   "allowScripts": {
     "esbuild@0.28.2": true

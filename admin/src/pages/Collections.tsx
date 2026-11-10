@@ -39,6 +39,7 @@ export default function Collections() {
 
   const [form, setForm] = useState<CollForm | null>(null);
   const [open, setOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const invalidate = () => utils.collections.list.invalidate();
   const createCollection = trpc.collections.create.useMutation({
@@ -198,12 +199,19 @@ export default function Collections() {
                   placeholder="/img/cover-winter.png"
                 />
                 <ImageUpload
+                  onBusyChange={setUploading}
                   onUpload={(coverImage) =>
                     setForm((current) =>
                       current ? { ...current, coverImage } : current,
                     )
                   }
                 />
+                {uploading && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Идёт загрузка фото — сохранение станет доступно после её
+                    завершения.
+                  </p>
+                )}
                 {form.coverImage && (
                   <img
                     src={form.coverImage}
@@ -239,6 +247,7 @@ export default function Collections() {
               disabled={
                 !form?.title.trim() ||
                 !form?.slug.trim() ||
+                uploading ||
                 createCollection.isPending ||
                 updateCollection.isPending
               }
