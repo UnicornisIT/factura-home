@@ -8,6 +8,13 @@ import {
 import { env } from "./env";
 import { log } from "./logger";
 
+type TelegramResponse = {
+  ok?: boolean;
+  error_code?: number;
+  description?: string;
+  parameters?: { retry_after?: number };
+};
+
 type SendResult =
   | { kind: "sent" | "chat_unavailable" | "rejected" }
   | { kind: "retry"; retryAfterMs?: number };
@@ -40,17 +47,19 @@ export async function sendTelegramMessage(
         }),
       }
     );
-    const body = await response.json().catch(() => null);
+    const body = (await response
+      .json()
+      .catch(() => null)) as TelegramResponse | null;
     const code = response.ok ? body?.error_code : response.status;
     if (response.ok && body?.ok === true) return { kind: "sent" };
     if (code === 429) {
       const header = response.headers.get("retry-after");
       const values = [
-        body?.parameters?.retry_after * 1000,
-        header && (Number(header) * 1000 || Date.parse(header) - Date.now()),
+        (body?.parameters?.retry_after ?? 0) * 1000,
+        header ? Number(header) * 1000 || Date.parse(header) - Date.now() : 0,
       ];
       const delays = values.filter(
-        (value): value is number => Number.isFinite(value) && value > 0
+        value => Number.isFinite(value) && value > 0
       );
       return { kind: "retry", retryAfterMs: Math.max(0, ...delays) };
     }
@@ -60,7 +69,8 @@ export async function sendTelegramMessage(
         /chat not found|user is deactivated/i.test(body?.description ?? ""))
     )
       return { kind: "chat_unavailable" };
-    if (code >= 400 && code < 500 && code !== 408) return { kind: "rejected" };
+    if (code !== undefined && code >= 400 && code < 500 && code !== 408)
+      return { kind: "rejected" };
   } catch {
     // Fetch errors may include the request URL, which contains the bot token.
   }
