@@ -254,7 +254,9 @@ describe("order Telegram notifications", () => {
     __getSqliteClient().exec(
       "CREATE TRIGGER reject_delivery BEFORE INSERT ON orderTelegramOutbox BEGIN SELECT RAISE(ABORT, 'test rollback'); END;"
     );
-    await expect(checkout()).rejects.toThrow("test rollback");
+    await expect(checkout()).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: "test rollback" }),
+    });
     expect(await listOrders()).toEqual([]);
     expect(await deliveries()).toEqual([]);
   });
