@@ -40,6 +40,7 @@ jobs:
           DB_DIALECT: mysql
           DATABASE_URL: mysql://root:local-ci-password@127.0.0.1:3306/factura_test
           SUPER_ADMIN_TELEGRAM_ID: 100
+          TELEGRAM_BOT_TOKEN: test-token
         run: |
           npm run db:migrate
           npm run db:migrate

@@ -4,10 +4,9 @@ import { env } from "../lib/env";
 
 export async function insertAndReturn<T extends Table>(
   table: T,
-  data: T["$inferInsert"]
+  data: T["$inferInsert"],
+  db = getDb()
 ): Promise<T["$inferSelect"]> {
-  const db = getDb() as any;
-
   if (env.dbDialect === "sqlite") {
     const rows: T["$inferSelect"][] = await db
       .insert(table)

@@ -10,6 +10,8 @@ import { createCollection } from "../api/queries/collections";
 import { createProduct } from "../api/queries/products";
 import { createOrder, listOrders } from "../api/queries/orders";
 import { securitySql } from "../api/queries/security-store";
+import { env } from "../api/lib/env";
+import { deliverNextOrderNotification } from "../api/lib/order-telegram";
 async function smoke() {
   await ensureOwner();
   await changeAccess(100, 200, "add");
@@ -31,6 +33,10 @@ async function smoke() {
     name: "Test",
     price: 700,
   });
+  await securitySql(
+    "INSERT INTO orderTelegramSubscriptions (telegramId, subscriptionKey) VALUES (?, ?), (?, ?)",
+    [100, randomUUID(), 200, randomUUID()]
+  );
   const order = await createOrder({
     name: "Test",
     contact: "test",
@@ -38,6 +44,27 @@ async function smoke() {
   });
   assert.equal(order.total, 1400);
   assert.ok((await listOrders()).some(entry => entry.id === order.id));
+  const sentTo: number[] = [];
+  assert.ok(
+    env.telegramBotToken,
+    "MySQL smoke requires a dummy Telegram token"
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    sentTo.push(JSON.parse(String(init?.body)).chat_id);
+    return Response.json({ ok: true });
+  };
+  try {
+    await Promise.all([
+      deliverNextOrderNotification(),
+      deliverNextOrderNotification(),
+    ]);
+    await deliverNextOrderNotification();
+    assert.equal(await deliverNextOrderNotification(), false);
+    assert.deepEqual(sentTo.sort(), [100, 200]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
   await changeAccess(100, 300, "add", "super_admin");
   await changeAccess(100, 400, "add", "super_admin");
   await Promise.allSettled([

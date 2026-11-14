@@ -6,6 +6,7 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { log } from "./lib/logger";
+import { startOrderNotificationWorker } from "./lib/order-telegram";
 import { validMutationOrigin } from "./lib/csrf";
 import { consumeRateLimit } from "./lib/rate-limit";
 import { sanitizeImage } from "./lib/images";
@@ -235,6 +236,7 @@ app.onError((error, c) => {
 export default app;
 if (env.isProduction && process.env.NODE_ENV !== "test") {
   await ensureOwner();
+  startOrderNotificationWorker();
   const { serve } = await import("@hono/node-server");
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);

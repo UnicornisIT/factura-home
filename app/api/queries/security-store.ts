@@ -23,7 +23,22 @@ function executor(connection?: PoolConnection): Sql {
   };
 }
 
-// Serialize SQLite transactions because its single connection cannot host overlapping transactions.
+// The shared SQLite connection cannot host overlapping transactions.
+export async function withSqliteTransactionLock<T>(
+  operation: () => T | Promise<T>
+) {
+  const previous = queue;
+  let release!: () => void;
+  queue = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
 export async function securityTransaction<T>(
   operation: (sql: Sql) => Promise<T>
 ): Promise<T> {
@@ -42,24 +57,18 @@ export async function securityTransaction<T>(
       connection.release();
     }
   }
-  const previous = queue;
-  let release!: () => void;
-  queue = new Promise<void>(resolve => {
-    release = resolve;
-  });
-  await previous;
-  const sql = executor();
-  try {
+  return withSqliteTransactionLock(async () => {
+    const sql = executor();
     await sql("BEGIN IMMEDIATE");
-    const result = await operation(sql);
-    await sql("COMMIT");
-    return result;
-  } catch (error) {
-    await sql("ROLLBACK");
-    throw error;
-  } finally {
-    release();
-  }
+    try {
+      const result = await operation(sql);
+      await sql("COMMIT");
+      return result;
+    } catch (error) {
+      await sql("ROLLBACK");
+      throw error;
+    }
+  });
 }
 
 export const securitySql: Sql = (...args) => executor()(...args);
