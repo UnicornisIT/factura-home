@@ -68,6 +68,18 @@ export default function Home() {
     });
   };
 
+  const changeQuantity = (productId: number, delta: number) => {
+    setCart(previous =>
+      previous
+        .map(item =>
+          item.productId === productId
+            ? { ...item, qty: Math.min(item.qty + delta, 50) }
+            : item
+        )
+        .filter(item => item.qty > 0)
+    );
+  };
+
   const visibleBlocks = useMemo(() => blocks ?? [], [blocks]);
   const design = content?.design;
 
@@ -280,10 +292,28 @@ export default function Home() {
             )}
             {cart.map(item => (
               <div className="cart-item" key={item.productId}>
-                <span>
-                  {item.name}
-                  {item.qty > 1 ? ` × ${item.qty}` : ""}
-                </span>
+                <span>{item.name}</span>
+                <div className="cart-item-quantity">
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    aria-label={`Уменьшить количество: ${item.name}`}
+                    disabled={order.isPending}
+                    onClick={() => changeQuantity(item.productId, -1)}
+                  >
+                    −
+                  </button>
+                  <span aria-live="polite">{item.qty}</span>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    aria-label={`Увеличить количество: ${item.name}`}
+                    disabled={order.isPending || item.qty >= 50}
+                    onClick={() => changeQuantity(item.productId, 1)}
+                  >
+                    +
+                  </button>
+                </div>
                 <span>{(item.price * item.qty).toLocaleString("ru-RU")} ₽</span>
               </div>
             ))}
