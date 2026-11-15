@@ -1231,12 +1231,37 @@
 }
 .cart-item {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid
     color-mix(in srgb, var(--accent, #831c25) 15%, transparent);
   font-size: 14px;
+}
+.cart-item > span:first-child {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.cart-item > span:last-child {
+  white-space: nowrap;
+}
+.cart-item-quantity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cart-item-quantity .btn {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 16px;
+}
+.cart-item-quantity .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
 }
 .cart-total {
   display: flex;

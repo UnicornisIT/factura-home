@@ -116,6 +116,7 @@ describe("HTTP security and checkout", () => {
       "orders.list",
       "allowlist.list",
       "allowlist.audit",
+      "system.updateStatus",
     ];
     for (const path of paths) {
       const response = await app.request(`${origin}/api/trpc/${path}`);
@@ -164,6 +165,16 @@ describe("HTTP security and checkout", () => {
       httpOnly: true,
       sameSite: "Lax",
     });
+  });
+  it("denies server update endpoints to plain admins (super_admin only)", async () => {
+    await changeAccess(100, 200, "add");
+    const admin = browser();
+    await admin.client.auth.telegram.verify.mutate(signed(200));
+    expect((await admin.client.auth.me.query())?.role).toBe("admin");
+    // Защита на сервере, а не только в интерфейсе: оба эндпоинта отклоняются
+    // до выполнения обработчиков (без обращений к GitHub и без запуска скрипта).
+    await expect(admin.client.system.updateStatus.query()).rejects.toThrow();
+    await expect(admin.client.system.startUpdate.mutate()).rejects.toThrow();
   });
   it("recomputes checkout totals and shows new orders to administrators", async () => {
     const collection = await createCollection({ slug: "test", title: "Test" });

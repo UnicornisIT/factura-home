@@ -26,6 +26,11 @@ export type UpdateOperationStatus = {
 const RELEASE_CACHE_TTL_MS = 60_000;
 // Защита от залипшего "running", если скрипт обновления погиб без записи статуса.
 const RUNNING_TIMEOUT_MS = 30 * 60_000;
+// Окно подтверждения запуска: за это время sudo/скрипт либо отклоняют запуск
+// (мгновенный ненулевой код), либо скрипт передаёт обновление в transient unit
+// и выходит с кодом 0, либо обновление продолжается на месте.
+const LAUNCH_CONFIRM_MS = 15_000;
+const STDERR_LIMIT = 4_096;
 let releaseCache: { at: number; value: LatestRelease | null } | null = null;
 
 export function __resetReleaseCacheForTests() {
@@ -51,16 +56,24 @@ export async function fetchLatestRelease(
 ): Promise<LatestRelease | null> {
   if (releaseCache && Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS)
     return releaseCache.value;
-  const response = await fetch(
-    `https://api.github.com/repos/${repository}/releases/latest`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "factura-shop",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    }
-  );
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://api.github.com/repos/${repository}/releases/latest`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "factura-shop",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      }
+    );
+  } catch {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: "GitHub API недоступен (сетевая ошибка)",
+    });
+  }
   if (response.status === 404) {
     // GitHub отвечает 404 и когда релизов нет, и когда приватный репозиторий
     // недоступен с текущими учётными данными.
@@ -152,8 +165,89 @@ type StartUpdateOptions = {
   enabled?: boolean;
   scriptPath?: string;
   statusPath?: string;
-  launch?: (scriptPath: string) => void;
+  launch?: (scriptPath: string) => void | Promise<void>;
+  launchConfirmMs?: number;
 };
+
+function sanitizeStderr(stderr: string): string {
+  return stderr
+    .split("\n")
+    .filter(line => !/token|password|authorization/i.test(line))
+    .map(line => line.trim())
+    .filter(Boolean)
+    .slice(-3)
+    .join(" ")
+    .slice(0, 300);
+}
+
+/**
+ * Запускает скрипт обновления через `sudo -n` и подтверждает, что запуск
+ * действительно принят: spawn-ошибка или быстрый ненулевой код (нет записи в
+ * sudoers, скрипт отклонил запуск) превращаются в ошибку API, а не в ложное
+ * `{ started: true }`. Выход с кодом 0 означает, что скрипт передал обновление
+ * в transient unit systemd; если процесс ещё работает по истечении окна
+ * подтверждения — обновление выполняется на месте. Дальнейший ход операции
+ * отслеживается по статус-файлу, который пишет сам скрипт.
+ */
+export function launchUpdateScript(
+  script: string,
+  confirmMs = LAUNCH_CONFIRM_MS
+): Promise<void> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    let stderr = "";
+    const child = spawn("sudo", ["-n", script], {
+      detached: true,
+      stdio: ["ignore", "ignore", "pipe"],
+      env: process.env,
+    });
+    const timer = setTimeout(() => {
+      settle(() => {
+        child.unref();
+        resolvePromise();
+      });
+    }, confirmMs);
+    function settle(action: () => void) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      action();
+    }
+    child.stderr?.on("data", chunk => {
+      if (stderr.length < STDERR_LIMIT) stderr += String(chunk);
+    });
+    child.on("error", error => {
+      log.error("Update script spawn failed", { type: error.name });
+      settle(() =>
+        rejectPromise(
+          new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Не удалось запустить обновление (${error.name}): проверьте наличие sudo и скрипта ${script}`,
+          })
+        )
+      );
+    });
+    child.on("exit", (code, signal) => {
+      if (code === 0) {
+        // Мгновенный выход 0: обновление передано в transient unit systemd.
+        settle(() => {
+          child.unref();
+          resolvePromise();
+        });
+        return;
+      }
+      const detail = sanitizeStderr(stderr);
+      settle(() =>
+        rejectPromise(
+          new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Запуск обновления отклонён (код ${code ?? signal ?? "неизвестен"})${detail ? `: ${detail}` : ""}`,
+          })
+        )
+      );
+    });
+  });
+}
 
 export async function startUpdate(
   options: StartUpdateOptions = {}
@@ -189,18 +283,16 @@ export async function startUpdate(
     });
   const launch =
     options.launch ??
-    ((script: string) => {
-      // Скрипт сам пишет статус и журнал; здесь его вывод не нужен.
-      const child = spawn("sudo", ["-n", script], {
-        detached: true,
-        stdio: "ignore",
-        env: process.env,
-      });
-      child.on("error", error => {
-        log.error("Update script spawn failed", { type: error.name });
-      });
-      child.unref();
+    ((script: string) => launchUpdateScript(script, options.launchConfirmMs));
+  try {
+    await launch(scriptPath);
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Не удалось запустить обновление",
+      cause: error,
     });
-  launch(scriptPath);
+  }
   return { started: true };
 }

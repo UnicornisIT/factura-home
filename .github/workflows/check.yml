@@ -19,6 +19,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: ShellCheck (deployment-скрипты)
+        run: shellcheck -x deployment/factura-update.sh deployment/setup.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22

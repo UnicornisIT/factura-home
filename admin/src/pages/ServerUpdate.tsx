@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Loader2, RefreshCw, ExternalLink } from "lucide-react";
+import { installationStatus, isHistoricalFailure } from "./server-update-state";
 
 // Этапы должны совпадать со стадиями deployment/factura-update.sh.
 const STAGES = [
@@ -103,6 +104,12 @@ export default function ServerUpdate() {
   const latest = data?.latest ?? null;
   const upToDate =
     !!latest && !!currentVersion && latest.tag === `v${currentVersion}`;
+  const status = installationStatus({
+    running,
+    enabled,
+    upToDate,
+    latestKnown: !!latest || !!data?.latestError,
+  });
 
   // Операция, запущенная из этой сессии панели (по времени клика).
   const op = data?.lastOperation ?? null;
@@ -212,12 +219,15 @@ export default function ServerUpdate() {
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-slate-500">Статус</span>
-              {running ? (
-                <StateBadge state="running" />
-              ) : (
-                <Badge variant="outline">
-                  {enabled ? "готово к обновлению" : "выключено"}
-                </Badge>
+              {status === "running" && <StateBadge state="running" />}
+              {status === "up-to-date" && (
+                <Badge variant="success">установлена последняя версия</Badge>
+              )}
+              {(status === "update-available" || status === "unknown") && (
+                <Badge variant="outline">готово к обновлению</Badge>
+              )}
+              {status === "disabled" && (
+                <Badge variant="outline">выключено</Badge>
               )}
             </div>
 
@@ -231,9 +241,17 @@ export default function ServerUpdate() {
             {op && !running && (
               <div className="border-t pt-3 space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">Последняя операция</span>
+                  <span className="text-slate-500">
+                    Последняя операция (история)
+                  </span>
                   <StateBadge state={op.state} />
                 </div>
+                {isHistoricalFailure(upToDate, op) && (
+                  <p className="text-xs text-slate-400">
+                    Ошибка относится к прошлой попытке обновления — сейчас
+                    установлена актуальная версия, действий не требуется.
+                  </p>
+                )}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500">Версия</span>
                   <span className="font-mono text-xs">{op.tag ?? "—"}</span>
