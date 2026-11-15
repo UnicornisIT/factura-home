@@ -109,8 +109,11 @@ id -u "$IT_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /
 mkdir -p "$IT_ROOT" "$DATA_DIR/uploads" "$BACKUP_DIR" "$LOG_DIR" "$STUBS" "$TARROOT"
 chown -R "$IT_USER:$IT_USER" "$DATA_DIR" "$LOG_DIR"
 chmod 700 "$BACKUP_DIR"
+# sudo uses secure_path, so the backup helper must see the same Node
+# version that npm ci used to install the native SQLite addon.
+install -m 755 "$NODE_BIN" "$IT_ROOT/node"
 if [ ! -x /usr/bin/node ]; then
-  ln -s "$NODE_BIN" /usr/bin/node
+  ln -s "$IT_ROOT/node" /usr/bin/node
   NODE_LINK_CREATED=1
 fi
 
@@ -155,7 +158,8 @@ if [ -f "$IT_ROOT/slow" ]; then sleep 8; fi
 exit 0
 EOF
 chmod 755 "$STUBS/curl" "$STUBS/npm"
-for name in curl npm; do
+ln -s "$IT_ROOT/node" "$STUBS/node"
+for name in curl npm node; do
   install -m 755 "$STUBS/$name" "/usr/local/bin/$name"
   STUBS_INSTALLED+=("/usr/local/bin/$name")
 done
@@ -240,7 +244,7 @@ mv "$TARROOT/unit.tmp" "$TARROOT/pkg/deployment/factura.service"
 # --- «Установленное приложение» v0.0.1 ---------------------------------------
 git_root clone -q "$REMOTE" "$APP_DIR"
 git_iso "$IT_USER" "$APP_DIR" checkout -q v0.0.1
-ln -s "$REPO_ROOT/app/node_modules" "$APP_DIR/app/node_modules"
+cp -a "$REPO_ROOT/app/node_modules" "$APP_DIR/app/node_modules"
 cat >"$APP_DIR/app/.env" <<EOF
 NODE_ENV=production
 DB_DIALECT=sqlite
@@ -297,9 +301,14 @@ wait_status() { # wait_status <state> [timeout c] — ждёт состояни�
     if [ -f "$STATUS_PATH" ]; then
       state="$(sed -n 's/.*"state":"\([a-z]*\)".*/\1/p' "$STATUS_PATH" | head -n1)"
       [ "$state" = "$want" ] && return 0
+      case "$state" in
+        success|failed|rolledback) break ;;
+      esac
     fi
     sleep 0.5
   done
+  [ ! -f "$STATUS_PATH" ] || cat "$STATUS_PATH" >&2
+  [ ! -f "$UPDATE_LOG" ] || tail -n 60 "$UPDATE_LOG" >&2
   echo "    (ожидался статус '$want', последний: '$state')" >&2
   return 1
 }

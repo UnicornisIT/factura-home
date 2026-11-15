@@ -174,8 +174,7 @@ export async function ensureDefaultBlocks(): Promise<void> {
       type: "cover",
       data: {
         ...blockDefaults("cover"),
-        // Стартовые тексты магазина важнее шаблонных; фото администратор
-        // загружает сам, до этого в арке остаётся декоративная заглушка.
+        // Стартовый набор должен использовать тексты текущего магазина.
         eyebrow: undefined,
         title: content.heroTitle,
         text: content.heroText,

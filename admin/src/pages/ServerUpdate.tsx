@@ -301,15 +301,12 @@ export default function ServerUpdate() {
                   </span>
                 </div>
                 {latest.url && (
-                  <a
-                    href={latest.url}
-                    target="_blank"
-                    rel="noopener"
-                    className="inline-flex items-center gap-1 text-xs text-[#5C2A2A] hover:underline"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Релиз на GitHub
-                  </a>
+                  <Button asChild variant="outline" size="sm">
+                    <a href={latest.url} target="_blank" rel="noopener">
+                      <ExternalLink />
+                      Релиз на GitHub
+                    </a>
+                  </Button>
                 )}
                 {latest.notes && (
                   <div className="border-t pt-3">
