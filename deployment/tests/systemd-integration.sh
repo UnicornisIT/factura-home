@@ -428,14 +428,16 @@ log "S5. Битый шаблон unit-файла: настоящий systemd-ana
 reset_to_v001
 GOOD_UNIT_SUM="$(md5sum "$UNIT_FILE" | cut -d' ' -f1)"
 printf 'TAG=v0.0.5\nCODE=200\n' >"$CURL_CONTROL"
-printf 'BogusUnknownDirective=yes\n' >>"$TARROOT/pkg/deployment/factura.service"
+cp "$TARROOT/pkg/deployment/factura.service" "$IT_ROOT/valid.service"
+# Unknown directives can produce a warning without a failing verify exit code.
+sed 's|^ExecStart=.*|ExecStart=/nonexistent/factura-it-executable|' \
+  "$IT_ROOT/valid.service" >"$TARROOT/pkg/deployment/factura.service"
 trigger_update
 if wait_status failed 120; then pass "обновление с битым юнитом отклонено"; else fail "обновление с битым юнитом не отклонено"; fi
 check "юнит не заменён (verify не прошёл)" bash -c "[ \"\$(md5sum '$UNIT_FILE' | cut -d' ' -f1)\" = '$GOOD_UNIT_SUM' ]"
 check "журнал: verify отклонил шаблон" grep -q "systemd-analyze verify" "$UPDATE_LOG"
 check "код откачен на v0.0.1" bash -c "[ \"\$(git -C '$APP_DIR' describe --tags --exact-match 2>/dev/null)\" = v0.0.1 ]"
-head -n -1 "$TARROOT/pkg/deployment/factura.service" >"$TARROOT/unit.tmp"
-mv "$TARROOT/unit.tmp" "$TARROOT/pkg/deployment/factura.service"
+mv "$IT_ROOT/valid.service" "$TARROOT/pkg/deployment/factura.service"
 
 # ==============================================================================
 log "S6. Ошибка резервного копирования: обновление отменено до изменения кода"
