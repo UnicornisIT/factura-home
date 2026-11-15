@@ -6,6 +6,7 @@ import {
   type BlockContextValue,
 } from "@/components/blocks/BlockRenderer";
 import { designCssVars } from "@contracts/design";
+import { Icon } from "@/components/Icon";
 
 type CartItem = { productId: number; name: string; price: number; qty: number };
 
@@ -66,6 +67,18 @@ export default function Home() {
         { productId: p.id, name: p.name, price: p.price, qty: 1 },
       ];
     });
+  };
+
+  const changeQuantity = (productId: number, delta: number) => {
+    setCart(previous =>
+      previous
+        .map(item =>
+          item.productId === productId
+            ? { ...item, qty: Math.min(item.qty + delta, 50) }
+            : item
+        )
+        .filter(item => item.qty > 0)
+    );
   };
 
   const visibleBlocks = useMemo(() => blocks ?? [], [blocks]);
@@ -176,6 +189,11 @@ export default function Home() {
           {content?.logoImage && (
             <img src={content.logoImage} alt="" className="logo-img" />
           )}
+          {!content?.logoImage && (
+            <span className="logo-mark">
+              <Icon name="leaf" size={30} />
+            </span>
+          )}
           {showShopName && (
             <span className="logo-text">
               {content?.shopName ?? "Глиняная мастерская"}
@@ -234,22 +252,39 @@ export default function Home() {
           <div className="footer-cta">{content?.footerCta}</div>
           <div className="footer-links">
             {content?.telegram && (
-              <a href={content.telegram} target="_blank" rel="noopener">
+              <a
+                className="btn btn-outline"
+                href={content.telegram}
+                target="_blank"
+                rel="noopener"
+              >
                 Telegram
               </a>
             )}
             {content?.whatsapp && (
-              <a href={content.whatsapp} target="_blank" rel="noopener">
+              <a
+                className="btn btn-outline"
+                href={content.whatsapp}
+                target="_blank"
+                rel="noopener"
+              >
                 WhatsApp
               </a>
             )}
             {content?.vk && (
-              <a href={content.vk} target="_blank" rel="noopener">
+              <a
+                className="btn btn-outline"
+                href={content.vk}
+                target="_blank"
+                rel="noopener"
+              >
                 ВКонтакте
               </a>
             )}
             {content?.email && (
-              <a href={`mailto:${content.email}`}>{content.email}</a>
+              <a className="btn btn-outline" href={`mailto:${content.email}`}>
+                {content.email}
+              </a>
             )}
           </div>
           {content?.footerText && (
@@ -265,7 +300,7 @@ export default function Home() {
       >
         <div className="cart-box" style={{ position: "relative" }}>
           <button
-            className="cart-close"
+            className="btn btn-outline cart-close"
             onClick={() => setCartOpen(false)}
             aria-label="Закрыть"
           >
@@ -280,10 +315,28 @@ export default function Home() {
             )}
             {cart.map(item => (
               <div className="cart-item" key={item.productId}>
-                <span>
-                  {item.name}
-                  {item.qty > 1 ? ` × ${item.qty}` : ""}
-                </span>
+                <span>{item.name}</span>
+                <div className="cart-item-quantity">
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    aria-label={`Уменьшить количество: ${item.name}`}
+                    disabled={order.isPending}
+                    onClick={() => changeQuantity(item.productId, -1)}
+                  >
+                    −
+                  </button>
+                  <span aria-live="polite">{item.qty}</span>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    aria-label={`Увеличить количество: ${item.name}`}
+                    disabled={order.isPending || item.qty >= 50}
+                    onClick={() => changeQuantity(item.productId, 1)}
+                  >
+                    +
+                  </button>
+                </div>
                 <span>{(item.price * item.qty).toLocaleString("ru-RU")} ₽</span>
               </div>
             ))}

@@ -127,6 +127,11 @@ export async function changeAccess(
       );
     }
 
+    if (operation === "deactivate")
+      await sql("DELETE FROM orderTelegramSubscriptions WHERE telegramId = ?", [
+        id,
+      ]);
+
     // Reactivation must never make a previously issued session valid again.
 
     await sql("DELETE FROM adminSessions WHERE telegramId = ?", [id]);

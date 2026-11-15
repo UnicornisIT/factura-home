@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/providers/trpc";
+import { OrderTelegramSettings } from "@/components/OrderTelegramSettings";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -82,6 +83,7 @@ export default function Orders() {
       }
     >
       <div className="space-y-3">
+        <OrderTelegramSettings />
         {filtered.length === 0 && (
           <Card>
             <CardContent className="p-8 text-center text-slate-500">

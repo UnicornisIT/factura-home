@@ -5,6 +5,9 @@ import type { Order } from "@db/schema";
 import { TRPCError } from "@trpc/server";
 import { listProducts } from "./products";
 import { insertAndReturn } from "./_shared";
+import { env } from "../lib/env";
+import { enqueueOrderNotifications } from "./order-notifications";
+import { withSqliteTransactionLock } from "./security-store";
 
 export type OrderItemInput = {
   productId: number;
@@ -41,13 +44,37 @@ export async function createOrder(data: {
       code: "BAD_REQUEST",
       message: "Некорректная сумма заказа",
     });
-  return insertAndReturn(orders, {
+  const values = {
     name: data.name,
     contact: data.contact,
     comment: data.comment ?? null,
     items: JSON.stringify(items),
     total,
-  });
+  };
+  const db = getDb();
+  if (env.dbDialect === "sqlite")
+    return withSqliteTransactionLock(() =>
+      db.transaction(
+        (tx: typeof db) => {
+          const order: Order = tx
+            .insert(orders)
+            .values(values)
+            .returning()
+            .get();
+          tx.run(enqueueOrderNotifications(order.id));
+          return order;
+        },
+        { behavior: "immediate" }
+      )
+    );
+  return db.transaction(
+    async (tx: typeof db) => {
+      const order = await insertAndReturn(orders, values, tx);
+      await tx.execute(enqueueOrderNotifications(order.id));
+      return order;
+    },
+    { isolationLevel: "read committed" }
+  );
 }
 
 export async function listOrders(): Promise<Order[]> {

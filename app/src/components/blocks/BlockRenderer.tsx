@@ -59,7 +59,7 @@ function paragraphs(text: string) {
 
 function scrollToId(elementId: string | undefined) {
   if (!elementId) return;
-  document.getElementById(elementId)?.scrollIntoView({ behavior: "smooth" });
+  document.getElementById(elementId)?.scrollIntoView();
 }
 
 export function BlockRenderer({
@@ -131,19 +131,13 @@ function CoverBlock({
   const link = data.buttonLink;
   const isAnchor = link.startsWith("#");
   const target = isAnchor
-    ? (ctx.anchors[link.slice(1)] ?? link.slice(1))
+    ? `#${ctx.anchors[link.slice(1)] ?? link.slice(1)}`
     : link;
   const button =
     data.buttonText && link !== "" ? (
-      isAnchor ? (
-        <button className="btn" onClick={() => scrollToId(target)}>
-          {data.buttonText}
-        </button>
-      ) : (
-        <a className="btn" href={link}>
-          {data.buttonText}
-        </a>
-      )
+      <a className="btn" href={target}>
+        {data.buttonText}
+      </a>
     ) : null;
 
   const content = (
@@ -191,6 +185,9 @@ function CoverBlock({
   }
 
   const imageLeft = data.imagePosition === "left";
+  const customImage = data.image === "/img/cover-autumn.png" ? "" : data.image;
+  const image =
+    customImage || (data.backgroundImage ? "" : "/img/hero-scene.webp");
   const focus =
     data.imageFocus && data.imageFocus !== "center"
       ? `center ${data.imageFocus}`
@@ -198,10 +195,10 @@ function CoverBlock({
   const photo = (
     <div className="hero-photo">
       <div className="hero-photo-frame">
-        {data.image ? (
+        {image ? (
           <img
-            src={data.image}
-            alt={data.title}
+            src={image}
+            alt=""
             fetchPriority="high"
             style={focus ? { objectPosition: focus } : undefined}
           />
@@ -211,8 +208,6 @@ function CoverBlock({
           </div>
         )}
       </div>
-      <LeafDecor className="hero-leaf hero-leaf-top" />
-      <LeafDecor className="hero-leaf hero-leaf-bottom" />
     </div>
   );
 
@@ -229,14 +224,8 @@ function CoverBlock({
       }
     >
       {data.backgroundImage && <div className="cover-overlay" />}
-      {/* Многослойный декор: тёплые пятна света и размытые тени листвы. */}
-      <div className="hero-decor" aria-hidden="true">
-        <span className="hd-bokeh hd-bokeh-1" />
-        <span className="hd-bokeh hd-bokeh-2" />
-        <LeafDecor className="hd-blur hd-blur-top" />
-        <LeafDecor className="hd-blur hd-blur-bottom" />
-      </div>
       <div className="hero-text-wrap">
+        <LeafDecor className="hero-shadow" />
         <div className="hero-text">{content}</div>
       </div>
       {photo}
@@ -391,6 +380,10 @@ function StepsBlock({ id, block }: { id: string; block: BlockOf<"steps"> }) {
 function AboutBlock({ id, block }: { id: string; block: BlockOf<"about"> }) {
   const { data } = block;
   const features = data.features ?? [];
+  const image =
+    data.image && data.image !== "/img/workshop.png"
+      ? data.image
+      : "/img/workshop-scene.webp";
   return (
     <section className="about" id={id}>
       <div className="about-inner">
@@ -413,15 +406,10 @@ function AboutBlock({ id, block }: { id: string; block: BlockOf<"about"> }) {
             <blockquote className="about-quote">«{data.quote}»</blockquote>
           )}
         </div>
-        {data.image && (
-          <div className="about-photo">
-            <img src={data.image} alt={data.title} loading="lazy" />
-            <LeafDecor className="about-leaf" />
-            {data.caption && (
-              <div className="about-caption">{data.caption}</div>
-            )}
-          </div>
-        )}
+        <div className="about-photo">
+          <img src={image} alt="" loading="lazy" />
+          {data.caption && <div className="about-caption">{data.caption}</div>}
+        </div>
       </div>
     </section>
   );
@@ -447,6 +435,7 @@ function CatalogBlock({
       : `cols-${count === 0 ? requested : Math.min(requested, count)}`;
   return (
     <section className="collections" id={id}>
+      <LeafDecor className="catalog-shadow" />
       <h2 className="section-title">{data.title}</h2>
       {data.text && <p className="section-subtitle">{data.text}</p>}
       <div className={`collections-grid ${gridClass}`}>
@@ -521,6 +510,7 @@ function ProductsBlock({
   const heading = activeCollection?.title || block.data.title || "Наши изделия";
   return (
     <section className="products" id={id}>
+      <LeafDecor className="catalog-shadow" />
       <h2 className="section-title">{heading}</h2>
       {activeCollection?.description && (
         <p className="section-subtitle">{activeCollection.description}</p>
@@ -528,6 +518,7 @@ function ProductsBlock({
       <div className="tabs">
         <button
           className={`tab ${slug === null ? "active" : ""}`}
+          aria-pressed={slug === null}
           onClick={() => ctx.onSelectCollection(null)}
         >
           Все категории
@@ -536,6 +527,7 @@ function ProductsBlock({
           <button
             key={collection.id}
             className={`tab ${collection.slug === slug ? "active" : ""}`}
+            aria-pressed={collection.slug === slug}
             onClick={() => ctx.onSelectCollection(collection.slug)}
           >
             {collection.title}
@@ -580,11 +572,13 @@ function DeliveryBlock({
             <p key={index}>{para}</p>
           ))}
         </div>
-        {data.image && (
-          <div className="delivery-photo">
-            <img src={data.image} alt={data.title} loading="lazy" />
-          </div>
-        )}
+        <div className="delivery-photo">
+          <img
+            src={data.image || "/img/delivery-scene.webp"}
+            alt=""
+            loading="lazy"
+          />
+        </div>
       </div>
       {cards.length > 0 && (
         <div className="delivery-cards">
@@ -655,16 +649,13 @@ function ContactsBlock({
             </div>
           )}
         </div>
-        {data.image && (
-          <div className="contacts-photo">
-            <img
-              src={data.image}
-              alt={data.title ?? "Контакты"}
-              loading="lazy"
-            />
-            <LeafDecor className="contacts-leaf" />
-          </div>
-        )}
+        <div className="contacts-photo">
+          <img
+            src={data.image || "/img/contacts-scene.webp"}
+            alt=""
+            loading="lazy"
+          />
+        </div>
       </div>
     </section>
   );

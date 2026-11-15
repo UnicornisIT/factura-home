@@ -40,7 +40,7 @@ describe("content queries (SQLite)", () => {
     await seedSiteContent();
     const c = await getSiteContent();
     expect(c.navItems).toEqual([]);
-    expect(c.design.colors.accent).toBe("#831C25");
+    expect(c.design.colors.accent).toBe("#751B22");
     expect(c.design.fonts.heading).toBe("cormorant");
     expect(c.showShopName).toBe(true);
     expect(c.vk).toBe("");
@@ -86,6 +86,6 @@ describe("content queries (SQLite)", () => {
     });
     const c = await getSiteContent();
     expect(c.navItems).toEqual([]);
-    expect(c.design.colors.background).toBe("#F8F0E8");
+    expect(c.design.colors.background).toBe("#FAF0E6");
   });
 });

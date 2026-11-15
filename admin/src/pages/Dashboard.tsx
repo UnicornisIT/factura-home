@@ -20,6 +20,7 @@ import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 const STATUS_LABELS: Record<
   string,
@@ -254,12 +255,11 @@ export default function Dashboard() {
       <Card className="mt-4">
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle>Последние заказы</CardTitle>
-          <Link
-            to="/orders"
-            className="text-xs text-[#5C2A2A] hover:underline inline-flex items-center gap-1"
-          >
-            Все заказы <ArrowRight className="h-3 w-3" />
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/orders">
+              Все заказы <ArrowRight />
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {lastOrders.length === 0 ? (

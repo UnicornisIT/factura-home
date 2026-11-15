@@ -4,6 +4,7 @@ import { adminAllowlistRouter } from "./admin-allowlist-router";
 import { collectionsRouter } from "./collections-router";
 import { productsRouter } from "./products-router";
 import { ordersRouter } from "./orders-router";
+import { orderNotificationsRouter } from "./order-notifications-router";
 import { contentRouter } from "./content-router";
 import { blocksRouter } from "./blocks-router";
 import { systemRouter } from "./system-router";
@@ -50,6 +51,7 @@ export const appRouter = createRouter({
   collections: collectionsRouter,
   products: productsRouter,
   orders: ordersRouter,
+  orderNotifications: orderNotificationsRouter,
   content: contentRouter,
   blocks: blocksRouter,
   system: systemRouter,
