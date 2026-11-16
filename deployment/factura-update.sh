@@ -331,22 +331,24 @@ prepare_deployment_files() {
   if [ -f "$src/factura-update.sh" ]; then
     UPDATE_TMP="$(mktemp "$(dirname "$UPDATE_SELF")/.factura-update-XXXXXX")" ||
       deployment_failed "не удалось создать временный файл рядом с $UPDATE_SELF"
-    install -m 755 "$src/factura-update.sh" "$UPDATE_TMP" && bash -n "$UPDATE_TMP" ||
+    if ! install -m 755 "$src/factura-update.sh" "$UPDATE_TMP" || ! bash -n "$UPDATE_TMP"; then
       deployment_failed "не удалось подготовить или проверить скрипт обновления"
+    fi
   fi
   if [ -f "$src/factura.service" ]; then
     # Проверяем юнит под его настоящим именем; временный каталог на той же
     # файловой системе позволяет затем заменить юнит атомарно.
     UNIT_TMP_DIR="$(mktemp -d "$(dirname "$UNIT_FILE")/.factura-unit-XXXXXX")" ||
       deployment_failed "не удалось создать временный каталог рядом с $UNIT_FILE"
-    local tmp="$UNIT_TMP_DIR/$(basename "$UNIT_FILE")"
+    local tmp="$UNIT_TMP_DIR/${UNIT_FILE##*/}"
     # ReadWritePaths сервиса ограничен данными и логами: каталоги root-скрипта
     # и юнитов намеренно НЕ входят — их пишет transient unit от root.
-    sed -e "s|@APP_DIR@|$APP_DIR|g" \
+    if ! sed -e "s|@APP_DIR@|$APP_DIR|g" \
       -e "s|@APP_USER@|$APP_USER|g" \
       -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE")|g" \
-      "$src/factura.service" >"$tmp" && chmod 644 "$tmp" ||
+      "$src/factura.service" >"$tmp" || ! chmod 644 "$tmp"; then
       deployment_failed "не удалось подготовить юнит $UNIT_FILE"
+    fi
     if command -v systemd-analyze >/dev/null 2>&1 &&
       ! systemd-analyze verify "$tmp"; then
       deployment_failed "юнит $UNIT_FILE не прошёл systemd-analyze verify"
@@ -355,9 +357,10 @@ prepare_deployment_files() {
   if [ -f "$src/sudoers-factura-update" ] && [ -f "$SUDOERS_FILE" ]; then
     SUDOERS_TMP="$(mktemp "$(dirname "$SUDOERS_FILE")/.sudoers-XXXXXX")" ||
       deployment_failed "не удалось создать временный файл рядом с $SUDOERS_FILE"
-    sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SELF|" \
-      "$src/sudoers-factura-update" >"$SUDOERS_TMP" && chmod 440 "$SUDOERS_TMP" ||
+    if ! sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SELF|" \
+      "$src/sudoers-factura-update" >"$SUDOERS_TMP" || ! chmod 440 "$SUDOERS_TMP"; then
       deployment_failed "не удалось подготовить $SUDOERS_FILE"
+    fi
     if ! visudo -cf "$SUDOERS_TMP"; then
       deployment_failed "файл $SUDOERS_FILE не прошёл visudo"
     fi
@@ -367,8 +370,9 @@ prepare_deployment_files() {
 replace_deployment_file() {
   local source="$1" target="$2" backup="$DEST/$3"
   if [ -e "$target" ] || [ -L "$target" ]; then
-    cp -pT -- "$target" "$backup.tmp" && mv -fT -- "$backup.tmp" "$backup" ||
+    if ! cp -pT -- "$target" "$backup.tmp" || ! mv -fT -- "$backup.tmp" "$backup"; then
       deployment_failed "не удалось сохранить прежний $target"
+    fi
   fi
   mv -fT -- "$source" "$target" || deployment_failed "не удалось заменить $target"
 }
@@ -379,7 +383,7 @@ install_deployment_files() {
     UPDATE_TMP=""
   fi
   if [ -n "$UNIT_TMP_DIR" ]; then
-    replace_deployment_file "$UNIT_TMP_DIR/$(basename "$UNIT_FILE")" "$UNIT_FILE" factura.service.prev
+    replace_deployment_file "$UNIT_TMP_DIR/${UNIT_FILE##*/}" "$UNIT_FILE" factura.service.prev
     systemctl daemon-reload || deployment_failed "не удалось выполнить systemctl daemon-reload"
   fi
   if [ -n "$SUDOERS_TMP" ]; then
