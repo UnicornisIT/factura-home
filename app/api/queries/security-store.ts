@@ -2,25 +2,52 @@ import { createPool, type PoolConnection } from "mysql2/promise";
 import { __getSqliteClient } from "./connection";
 import { env } from "../lib/env";
 
-export type Sql = (
-  sql: string,
-  values?: (string | number | null)[]
-) => Promise<Record<string, unknown>[]>;
+type SqlParams = [sql: string, values?: (string | number | null)[]];
+type SqlRows = Record<string, unknown>[];
+export type Sql = (...args: SqlParams) => Promise<SqlRows>;
 let pool: ReturnType<typeof createPool> | undefined;
 let queue = Promise.resolve();
 
+function sqliteExecute(sql: string, values: SqlParams[1] = []): SqlRows {
+  const statement = __getSqliteClient().prepare(sql);
+  return statement.reader
+    ? (statement.all(...values) as SqlRows)
+    : (statement.run(...values), []);
+}
+
 function executor(connection?: PoolConnection): Sql {
   return async (sql, values = []) => {
-    if (env.dbDialect === "sqlite") {
-      const statement = __getSqliteClient().prepare(sql);
-      return statement.reader
-        ? (statement.all(...values) as Record<string, unknown>[])
-        : (statement.run(...values), []);
-    }
+    if (env.dbDialect === "sqlite") return sqliteExecute(sql, values);
     pool ??= createPool(env.databaseUrl);
     const [rows] = await (connection ?? pool).execute(sql, values);
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   };
+}
+
+export type SqlTransaction<T> = Generator<SqlParams, T, SqlRows>;
+
+export function runSqlTransaction<T>(
+  operation: () => SqlTransaction<T>
+): Promise<T> {
+  const steps = operation();
+  if (env.dbDialect === "mysql")
+    return securityTransaction(async sql => {
+      let step = steps.next();
+      while (!step.done) step = steps.next(await sql(...step.value));
+      return step.value;
+    });
+
+  // A synchronous SQLite transaction prevents reads on the shared connection
+  // from observing the intermediate state of a publication.
+  return withSqliteTransactionLock(() =>
+    __getSqliteClient()
+      .transaction(() => {
+        let step = steps.next();
+        while (!step.done) step = steps.next(sqliteExecute(...step.value));
+        return step.value;
+      })
+      .immediate()
+  );
 }
 
 // The shared SQLite connection cannot host overlapping transactions.

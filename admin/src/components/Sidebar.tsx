@@ -14,23 +14,25 @@ import {
   ShieldCheck,
   RefreshCw,
   Palette,
-  Eye,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const NAV_BASE = [
-  { to: "/", label: "Дэшборд", icon: LayoutDashboard, end: true },
+  { to: "/", label: "Дашборд", icon: LayoutDashboard, end: true },
   { to: "/orders", label: "Заказы", icon: ShoppingCart },
   { to: "/products", label: "Товары", icon: Package },
   { to: "/collections", label: "Коллекции", icon: FolderTree },
-  { to: "/builder", label: "Конструктор", icon: LayoutTemplate },
-  { to: "/preview", label: "Предпросмотр", icon: Eye },
+  { to: "/builder", label: "Редактор главной страницы", icon: LayoutTemplate },
   { to: "/design", label: "Дизайн сайта", icon: Palette },
   { to: "/content", label: "Тексты и контакты", icon: FileText },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  onBeforeLogout,
+}: {
+  onBeforeLogout?: () => boolean;
+}) {
   const { user, logout, isSuperAdmin } = useAuth();
   const { data: newOrders } = trpc.orders.newCount.useQuery(undefined, {
     refetchInterval: 15000,
@@ -55,10 +57,8 @@ export function Sidebar() {
     <aside className="flex flex-col w-60 shrink-0 bg-sidebar text-slate-100 border-r border-sidebar-border">
       {/* Лого */}
       <div className="px-4 py-5 border-b border-sidebar-border">
-        <div className="font-semibold text-base leading-tight">Глиняная</div>
-        <div className="font-semibold text-base leading-tight">мастерская</div>
-        <div className="text-[10px] uppercase tracking-wider text-sidebar-muted mt-1">
-          Админ-панель
+        <div className="font-semibold text-base leading-tight">
+          Панель администратора
         </div>
       </div>
 
@@ -139,7 +139,9 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={logout}
+            onClick={() => {
+              if (!onBeforeLogout || onBeforeLogout()) logout();
+            }}
             className="text-slate-400 hover:text-white hover:bg-sidebar-active"
             title="Выйти"
             aria-label="Выйти"

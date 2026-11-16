@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useBeforeUnload, useBlocker, useSearchParams } from "react-router";
 import {
   DndContext,
+  KeyboardSensor,
   PointerSensor,
   closestCenter,
   useSensor,
@@ -10,6 +12,7 @@ import {
 import {
   SortableContext,
   arrayMove,
+  sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
@@ -18,6 +21,7 @@ import { Eye, EyeOff, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
 import { BlockForm } from "@/components/builder/BlockForm";
+import { StorefrontPreview } from "@/components/builder/StorefrontPreview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,6 +40,7 @@ import {
   MAX_BLOCKS,
   SINGLETON_BLOCK_TYPES,
   blockDefaults,
+  createTemporaryBlockId,
   type Block,
   type BlockData,
   type BlockType,
@@ -77,18 +82,20 @@ function SortableBlockCard({
       }}
       className="flex items-center gap-2 p-3"
     >
-      <button
+      <Button
         type="button"
-        className="cursor-grab touch-none p-1.5 text-slate-400 hover:text-slate-700"
+        size="icon"
+        variant="ghost"
+        className="h-8 w-8 cursor-grab touch-none text-slate-500"
         aria-label={`Переместить блок «${BLOCK_LABELS[block.type]}»`}
         {...attributes}
         {...listeners}
       >
         <GripVertical className="h-4 w-4" />
-      </button>
+      </Button>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">
+        <div className="flex min-w-0 flex-col items-start gap-1">
+          <span className="max-w-full truncate text-sm font-medium">
             {blockSummary(block)}
           </span>
           <Badge variant="brand">{BLOCK_LABELS[block.type]}</Badge>
@@ -102,7 +109,9 @@ function SortableBlockCard({
           className="h-8 w-8"
           onClick={onToggleVisible}
           aria-label={block.isVisible ? "Скрыть блок" : "Показать блок"}
-          title={block.isVisible ? "Скрыть с сайта" : "Показать на сайте"}
+          title={
+            block.isVisible ? "Скрыть в черновике" : "Показать в черновике"
+          }
         >
           {block.isVisible ? (
             <Eye className="h-4 w-4" />
@@ -137,58 +146,107 @@ function SortableBlockCard({
 
 export default function Builder() {
   const utils = trpc.useUtils();
-  const { data: blocks } = trpc.blocks.listAll.useQuery();
-  const ordered = useMemo(
-    () => [...(blocks ?? [])].sort((a, b) => a.position - b.position),
-    [blocks],
-  );
-
+  const query = trpc.blocks.draft.get.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+  });
+  const [searchParams] = useSearchParams();
+  const [expanded, setExpanded] = useState(searchParams.get("preview") === "1");
+  const [working, setWorking] = useState<{
+    version: number;
+    blocks: Block[];
+  }>();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [editing, setEditing] = useState<Block | null>(null);
   const [draft, setDraft] = useState<BlockData | null>(null);
   const [draftBg, setDraftBg] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [conflict, setConflict] = useState(false);
+  const save = trpc.blocks.draft.save.useMutation();
+  const publish = trpc.blocks.draft.publish.useMutation();
+  const restore = trpc.blocks.draft.restore.useMutation();
+  const pending = save.isPending || publish.isPending || restore.isPending;
+  const formChanged =
+    !!editing &&
+    (JSON.stringify(editing.data) !== JSON.stringify(draft) ||
+      editing.background !== draftBg);
+  const unsaved = !!working || formChanged;
+  const ordered = working?.blocks ?? query.data?.blocks ?? [];
+  const skipBlocker = useRef(false);
+  const leaveMessage = "Есть несохранённые изменения. Покинуть редактор?";
+  const blocker = useBlocker(
+    ({ nextLocation }) =>
+      unsaved &&
+      !(skipBlocker.current && nextLocation.pathname.endsWith("/login")),
+  );
+
+  useBeforeUnload((event) => {
+    if (unsaved) event.preventDefault();
+  });
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (window.confirm(leaveMessage)) blocker.proceed();
+    else blocker.reset();
+  }, [blocker]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
 
-  const invalidate = async () => {
-    await Promise.all([
-      utils.blocks.listAll.invalidate(),
-      utils.blocks.list.invalidate(),
-    ]);
+  const changeBlocks = (blocks: Block[]) => {
+    if (!query.data || pending || query.isFetching) return;
+    setWorking({
+      version: working?.version ?? query.data.version,
+      blocks: blocks.map((block, index) => ({ ...block, position: index + 1 })),
+    });
+    if (!conflict) setError("");
   };
 
-  const createBlock = trpc.blocks.create.useMutation({
-    onSuccess: async () => {
-      setLibraryOpen(false);
+  const write = (action: "save" | "publish" | "restore") => {
+    if (!query.data || pending || query.isFetching || conflict) return;
+    if (action === "save" && !working) return;
+    const version = working?.version ?? query.data.version;
+    setError("");
+    const callbacks = {
+      onSuccess: (next: typeof query.data) => {
+        utils.blocks.draft.get.setData(undefined, next);
+        setWorking(undefined);
+      },
+      onError: (failure: typeof save.error) => {
+        setError(failure?.message ?? "Сервер не подтвердил изменения.");
+        setConflict(failure?.data?.code === "CONFLICT");
+      },
+    };
+    if (action === "save" && working) save.mutate(working, callbacks);
+    if (action === "publish") publish.mutate({ version }, callbacks);
+    if (action === "restore") restore.mutate({ version }, callbacks);
+  };
+
+  const reload = async () => {
+    if (
+      unsaved &&
+      !window.confirm(
+        "Загрузить актуальный черновик и отменить локальные изменения?",
+      )
+    )
+      return;
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      setWorking(undefined);
+      setConflict(false);
       setError("");
-      await invalidate();
-    },
-    onError: (e) => setError(e.message),
-  });
-  const updateBlock = trpc.blocks.update.useMutation({
-    onSuccess: async () => {
-      setEditing(null);
-      setDraft(null);
-      setDraftBg(null);
-      setError("");
-      await invalidate();
-    },
-    onError: (e) => setError(e.message),
-  });
-  const deleteBlock = trpc.blocks.delete.useMutation({
-    onSuccess: invalidate,
-    onError: (e) => setError(e.message),
-  });
-  const reorderBlocks = trpc.blocks.reorder.useMutation({
-    onSuccess: invalidate,
-    onError: (e) => {
-      setError(e.message);
-      void invalidate();
-    },
-  });
+    } else setError(result.error?.message ?? "Не удалось загрузить черновик.");
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setDraft(null);
+    setDraftBg(null);
+  };
 
   const startEdit = (block: Block) => {
     setEditing(block);
@@ -198,8 +256,18 @@ export default function Builder() {
   };
 
   const startCreate = (type: BlockType) => {
-    setError("");
-    createBlock.mutate({ type, data: blockDefaults(type) });
+    changeBlocks([
+      ...ordered,
+      {
+        id: createTemporaryBlockId(ordered),
+        type,
+        data: blockDefaults(type),
+        isVisible: true,
+        background: null,
+        position: ordered.length + 1,
+      } as Block,
+    ]);
+    setLibraryOpen(false);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -208,13 +276,7 @@ export default function Builder() {
     const oldIndex = ordered.findIndex((b) => b.id === active.id);
     const newIndex = ordered.findIndex((b) => b.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(ordered, oldIndex, newIndex).map((b, index) => ({
-      ...b,
-      position: index + 1,
-    }));
-    // Оптимистично обновляем порядок, сервер проверяет состав блоков.
-    utils.blocks.listAll.setData(undefined, next);
-    reorderBlocks.mutate({ ids: next.map((b) => b.id) });
+    changeBlocks(arrayMove(ordered, oldIndex, newIndex));
   };
 
   const usedSingletons = new Set(
@@ -225,72 +287,196 @@ export default function Builder() {
 
   return (
     <AdminLayout
-      title="Конструктор страницы"
-      description="Блоки главной страницы: добавляйте, переставляйте перетаскиванием, скрывайте и редактируйте"
-      actions={
-        <Button
-          onClick={() => {
-            setError("");
-            setLibraryOpen(true);
-          }}
-          disabled={ordered.length >= MAX_BLOCKS}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          Добавить блок
-        </Button>
-      }
+      title="Редактор главной страницы"
+      onBeforeLogout={() => {
+        if (unsaved && !window.confirm(leaveMessage)) return false;
+        skipBlocker.current = true;
+        return true;
+      }}
     >
-      {error && (
-        <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-          {error}
+      {(error || query.error) && (
+        <div
+          role="alert"
+          className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+        >
+          {error || query.error?.message}
+          {(conflict || query.isError) && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={query.isFetching}
+              onClick={() => void reload()}
+            >
+              Загрузить актуальный черновик
+            </Button>
+          )}
         </div>
       )}
-
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-      >
-        <SortableContext
-          items={ordered.map((b) => b.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <div className="grid gap-2">
-            {ordered.map((block) => (
-              <SortableBlockCard
-                key={block.id}
-                block={block}
-                onEdit={() => startEdit(block)}
-                onToggleVisible={() =>
-                  updateBlock.mutate({
-                    id: block.id,
-                    isVisible: !block.isVisible,
-                  })
+      {query.isPending && <p role="status">Загрузка черновика…</p>}
+      {query.data && (
+        <>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex flex-wrap items-center gap-2"
+            >
+              <Badge
+                variant={unsaved || query.data.hasChanges ? "warning" : "brand"}
+              >
+                {unsaved || query.data.hasChanges
+                  ? "Есть неопубликованные изменения"
+                  : "Опубликовано"}
+              </Badge>
+              <span className="text-sm text-slate-600">
+                {save.isPending
+                  ? "Сохраняется…"
+                  : publish.isPending
+                    ? "Публикуется…"
+                    : restore.isPending
+                      ? "Восстанавливается…"
+                      : save.isError && error
+                        ? "Ошибка сохранения"
+                        : unsaved
+                          ? "Есть несохранённые изменения"
+                          : query.data.hasChanges ||
+                              save.data?.version === query.data.version
+                            ? "Черновик сохранён"
+                            : ""}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setExpanded(true)}
+              >
+                Предпросмотр
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={
+                  pending ||
+                  query.isFetching ||
+                  conflict ||
+                  (!unsaved && !query.data.hasChanges)
                 }
-                onDelete={() => {
+                onClick={() => {
                   if (
                     window.confirm(
-                      `Удалить блок «${BLOCK_LABELS[block.type]}»? Действие необратимо.`,
+                      "Отменить изменения черновика и восстановить опубликованную версию?",
                     )
                   )
-                    deleteBlock.mutate({ id: block.id });
+                    write("restore");
                 }}
-              />
-            ))}
-            {ordered.length === 0 && (
-              <Card className="p-8 text-center text-slate-500">
-                Блоков пока нет — добавьте первый из библиотеки.
-              </Card>
-            )}
+              >
+                Восстановить опубликованное
+              </Button>
+              {unsaved && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={
+                    pending || query.isFetching || conflict || formChanged
+                  }
+                  onClick={() => write("save")}
+                >
+                  Сохранить черновик
+                </Button>
+              )}
+              <Button
+                size="sm"
+                disabled={
+                  unsaved ||
+                  pending ||
+                  query.isFetching ||
+                  conflict ||
+                  !query.data.hasChanges
+                }
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Опубликовать черновик? Посетители увидят обновлённую главную страницу.",
+                    )
+                  )
+                    write("publish");
+                }}
+              >
+                Опубликовать
+              </Button>
+            </div>
           </div>
-        </SortableContext>
-      </DndContext>
-
-      <p className="mt-6 text-xs text-slate-500">
-        Шапка, футер и контакты настраиваются в разделе «Тексты и контакты».
-        Порядок блоков сохраняется автоматически после перетаскивания.
-      </p>
-
+          <div className="grid items-start gap-4 2xl:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
+            <fieldset
+              disabled={pending || query.isFetching}
+              className="min-w-0 space-y-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold">Структура страницы</h2>
+                <Button
+                  size="sm"
+                  onClick={() => setLibraryOpen(true)}
+                  disabled={ordered.length >= MAX_BLOCKS}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Добавить блок
+                </Button>
+              </div>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onDragEnd}
+              >
+                <SortableContext
+                  items={ordered.map((b) => b.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="grid gap-2">
+                    {ordered.map((block) => (
+                      <SortableBlockCard
+                        key={block.id}
+                        block={block}
+                        onEdit={() => startEdit(block)}
+                        onToggleVisible={() =>
+                          changeBlocks(
+                            ordered.map((item) =>
+                              item.id === block.id
+                                ? { ...item, isVisible: !item.isVisible }
+                                : item,
+                            ),
+                          )
+                        }
+                        onDelete={() => {
+                          if (
+                            window.confirm(
+                              `Удалить блок «${BLOCK_LABELS[block.type]}» из черновика?`,
+                            )
+                          )
+                            changeBlocks(
+                              ordered.filter((item) => item.id !== block.id),
+                            );
+                        }}
+                      />
+                    ))}
+                    {ordered.length === 0 && (
+                      <Card className="p-8 text-center text-slate-500">
+                        Блоков пока нет — добавьте первый из библиотеки.
+                      </Card>
+                    )}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </fieldset>
+            <StorefrontPreview
+              blocks={ordered}
+              version={query.data.version}
+              expanded={expanded}
+              onCollapse={() => setExpanded(false)}
+            />
+          </div>
+        </>
+      )}
       {/* Библиотека блоков */}
       <Dialog open={libraryOpen} onOpenChange={setLibraryOpen}>
         <DialogContent className="max-w-2xl">
@@ -307,12 +493,13 @@ export default function Builder() {
                 ? usedSingletons.has(entry.type)
                 : false;
               return (
-                <button
+                <Button
                   key={entry.type}
                   type="button"
-                  disabled={disabled || createBlock.isPending}
+                  variant="outline"
+                  disabled={disabled}
                   onClick={() => startCreate(entry.type)}
-                  className="rounded-md border border-slate-200 p-3 text-left transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="block h-auto whitespace-normal p-3 text-left"
                 >
                   <div className="text-sm font-medium">{entry.label}</div>
                   <div className="mt-0.5 text-xs text-slate-500">
@@ -323,15 +510,10 @@ export default function Builder() {
                       Уже добавлен — блок может быть только один
                     </div>
                   )}
-                </button>
+                </Button>
               );
             })}
           </div>
-          {error && (
-            <p role="alert" className="text-sm text-red-700">
-              {error}
-            </p>
-          )}
         </DialogContent>
       </Dialog>
 
@@ -339,12 +521,11 @@ export default function Builder() {
       <Dialog
         open={!!editing}
         onOpenChange={(open) => {
-          if (!open) {
-            setEditing(null);
-            setDraft(null);
-            setDraftBg(null);
-            setError("");
-          }
+          if (
+            !open &&
+            (!formChanged || window.confirm("Отменить изменения блока?"))
+          )
+            closeEdit();
         }}
       >
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -353,7 +534,7 @@ export default function Builder() {
               {editing ? BLOCK_LABELS[editing.type] : ""}
             </DialogTitle>
             <DialogDescription>
-              Изменения появятся на сайте сразу после сохранения.
+              Изменения появятся на витрине после публикации страницы.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-3">
@@ -378,35 +559,25 @@ export default function Builder() {
           {editing && draft && (
             <BlockForm block={editing} data={draft} onChange={setDraft} />
           )}
-          {error && (
-            <p role="alert" className="text-sm text-red-700">
-              {error}
-            </p>
-          )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setEditing(null);
-                setDraft(null);
-                setDraftBg(null);
-              }}
-            >
+            <Button variant="outline" onClick={closeEdit}>
               Отмена
             </Button>
             <Button
-              onClick={() =>
-                editing &&
-                draft &&
-                updateBlock.mutate({
-                  id: editing.id,
-                  data: draft,
-                  background: draftBg,
-                })
-              }
-              disabled={updateBlock.isPending || !draft}
+              onClick={() => {
+                if (!editing || !draft) return;
+                changeBlocks(
+                  ordered.map((item) =>
+                    item.id === editing.id
+                      ? ({ ...item, data: draft, background: draftBg } as Block)
+                      : item,
+                  ),
+                );
+                closeEdit();
+              }}
+              disabled={!formChanged}
             >
-              {updateBlock.isPending ? "Сохранение…" : "Сохранить"}
+              Применить
             </Button>
           </DialogFooter>
         </DialogContent>

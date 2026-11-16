@@ -10,7 +10,7 @@ export default function NotFound() {
           to="/"
           className="inline-block mt-3 px-4 py-2 rounded-md bg-[#5C2A2A] text-white text-sm hover:bg-[#7a3a3a] transition-colors"
         >
-          ← На дэшборд
+          ← На дашборд
         </Link>
       </div>
     </div>

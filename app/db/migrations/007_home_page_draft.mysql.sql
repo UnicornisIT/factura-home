@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS homePageDraft (
+  id INT PRIMARY KEY,
+  version INT UNSIGNED NOT NULL,
+  snapshot LONGTEXT NOT NULL,
+  hasChanges BOOLEAN NOT NULL
+) ENGINE=InnoDB;
+
+ALTER TABLE blocks ENGINE=InnoDB;
+ALTER TABLE siteContent ENGINE=InnoDB;

@@ -168,12 +168,22 @@ export function validateBlockData<T extends BlockType>(
   data: unknown
 ): BlockDataMap[T] {
   const serialized = JSON.stringify(data ?? {});
-  if (serialized.length > MAX_DATA_JSON_LENGTH)
+  if (
+    serialized.length > MAX_DATA_JSON_LENGTH ||
+    Buffer.byteLength(serialized, "utf8") > 65_535
+  )
     throw new TRPCError({
       code: "PAYLOAD_TOO_LARGE",
       message: "Слишком большой объём данных блока",
     });
-  return blockDataSchemas[type].parse(data) as BlockDataMap[T];
+  const parsed = blockDataSchemas[type].safeParse(data);
+  if (!parsed.success)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: parsed.error.issues.map(issue => issue.message).join(", "),
+      cause: parsed.error,
+    });
+  return parsed.data as BlockDataMap[T];
 }
 
 /**

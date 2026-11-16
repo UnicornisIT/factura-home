@@ -1,56 +1,100 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createRouter, publicQuery, adminQuery } from "./middleware";
 import {
   listVisibleBlocks,
   listAllBlocks,
-  createBlock,
-  updateBlock,
-  deleteBlock,
-  reorderBlocks,
+  getHomeDraft,
+  editHomeDraft,
+  restoreHomeDraft,
+  publishHomeDraft,
 } from "./queries/blocks";
 import { blockTypeSchema, backgroundColorSchema } from "./lib/block-schemas";
-import { MAX_BLOCKS } from "@contracts/blocks";
+import {
+  blockDefaults,
+  createTemporaryBlockId,
+  MAX_BLOCKS,
+} from "@contracts/blocks";
 
-export const blocksRouter = createRouter({
-  /** Видимые блоки главной страницы — для витрины. */
-  list: publicQuery.query(() => listVisibleBlocks()),
+const versioned = z.object({ version: z.number().int().positive() });
+const blockId = z
+  .number()
+  .int()
+  .refine(id => id !== 0);
+const blockData = z.record(z.string(), z.unknown());
+const patch = z.object({
+  isVisible: z.boolean(),
+  background: backgroundColorSchema.nullable(),
+  data: blockData,
+});
+const draftBlock = patch.extend({ id: blockId, type: blockTypeSchema });
 
-  /** Все блоки, включая скрытые — для конструктора в админ-панели. */
-  listAll: adminQuery.query(() => listAllBlocks()),
-
+const draftRouter = createRouter({
+  get: adminQuery.query(() => getHomeDraft()),
+  save: adminQuery
+    .input(versioned.extend({ blocks: z.array(draftBlock).max(MAX_BLOCKS) }))
+    .mutation(({ input }) => editHomeDraft(input.version, () => input.blocks)),
   create: adminQuery
     .input(
-      z.object({
-        type: blockTypeSchema,
-        data: z.record(z.string(), z.unknown()).optional(),
-      })
+      versioned.extend({ type: blockTypeSchema, data: blockData.optional() })
     )
-    .mutation(({ input }) => createBlock(input)),
-
+    .mutation(({ input }) =>
+      editHomeDraft(input.version, blocks => [
+        ...blocks,
+        {
+          id: createTemporaryBlockId(blocks),
+          type: input.type,
+          data: input.data ?? blockDefaults(input.type),
+          isVisible: true,
+          background: null,
+        },
+      ])
+    ),
   update: adminQuery
-    .input(
-      z.object({
-        id: z.number().int().positive(),
-        data: z.record(z.string(), z.unknown()).optional(),
-        isVisible: z.boolean().optional(),
-        background: backgroundColorSchema.nullable().optional(),
+    .input(versioned.extend({ id: blockId, patch: patch.partial() }))
+    .mutation(({ input }) =>
+      editHomeDraft(input.version, blocks => {
+        if (!blocks.some(block => block.id === input.id))
+          throw new TRPCError({ code: "NOT_FOUND", message: "Блок не найден" });
+        return blocks.map(block =>
+          block.id === input.id ? { ...block, ...input.patch } : block
+        );
       })
-    )
-    .mutation(({ input }) => {
-      const { id, ...patch } = input;
-      return updateBlock(id, patch);
-    }),
-
+    ),
   delete: adminQuery
-    .input(z.object({ id: z.number().int().positive() }))
-    .mutation(({ input }) => deleteBlock(input.id)),
-
-  /** Полный список id блоков в новом порядке. */
+    .input(versioned.extend({ id: blockId }))
+    .mutation(({ input }) =>
+      editHomeDraft(input.version, blocks =>
+        blocks.filter(block => block.id !== input.id)
+      )
+    ),
   reorder: adminQuery
-    .input(
-      z.object({
-        ids: z.array(z.number().int().positive()).min(1).max(MAX_BLOCKS),
+    .input(versioned.extend({ ids: z.array(blockId).max(MAX_BLOCKS) }))
+    .mutation(({ input }) =>
+      editHomeDraft(input.version, blocks => {
+        const byId = new Map(blocks.map(block => [block.id, block]));
+        if (
+          input.ids.length !== blocks.length ||
+          new Set(input.ids).size !== blocks.length ||
+          input.ids.some(id => !byId.has(id))
+        )
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Нужен полный список блоков без повторов",
+          });
+        return input.ids.map(id => byId.get(id)!);
       })
-    )
-    .mutation(({ input }) => reorderBlocks(input.ids)),
+    ),
+  restore: adminQuery
+    .input(versioned)
+    .mutation(({ input }) => restoreHomeDraft(input.version)),
+  publish: adminQuery
+    .input(versioned)
+    .mutation(({ input }) => publishHomeDraft(input.version)),
+});
+
+export const blocksRouter = createRouter({
+  list: publicQuery.query(() => listVisibleBlocks()),
+  listAll: adminQuery.query(() => listAllBlocks()),
+  draft: draftRouter,
 });

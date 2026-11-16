@@ -123,7 +123,7 @@ export default function Dashboard() {
 
   return (
     <AdminLayout
-      title="Дэшборд"
+      title="Дашборд"
       description="Сводка по магазину за последние 30 дней"
     >
       {/* KPI-карточки */}

@@ -1,5 +1,47 @@
 # Однократная установка исправленного обновлятора (сервер v0.2.3+)
 
+## Переход на v0.3.2 после ошибки `Failed to prepare filename`
+
+Старый скрипт передаёт `systemd-analyze verify` временный файл без суффикса
+`.service`. Поскольку во время обновления выполняется установленная копия
+скрипта, сначала замените её через SSH. Выполните команды после публикации
+v0.3.2 и завершения предыдущей операции обновления.
+
+Ниже используются сервис `factura` и путь
+`/usr/local/sbin/factura-update.sh`. При нестандартной установке подставьте имя
+сервиса и путь из `SERVER_UPDATE_SCRIPT`.
+
+```bash
+(
+  set -eu
+  tag=v0.3.2
+  updater=/usr/local/sbin/factura-update.sh
+  app_dir=$(sudo systemctl show factura --property=WorkingDirectory --value)
+  repo=${app_dir%/app}
+  owner=$(stat -c '%U' "$repo")
+  tmp=$(mktemp)
+  trap 'rm -f -- "$tmp"' EXIT
+
+  sudo -u "$owner" git -C "$repo" fetch origin "refs/tags/$tag:refs/tags/$tag"
+  sudo -u "$owner" git --no-replace-objects -C "$repo" show \
+    "refs/tags/$tag:deployment/factura-update.sh" > "$tmp"
+  bash -n "$tmp"
+  sudo cp -p -- "$updater" "$updater.bak-$(date +%Y%m%d-%H%M%S)"
+  sudo install -o root -g root -m 755 -- "$tmp" "$updater"
+)
+```
+
+После успешной замены запустите обновление вручную. Скрипт сам скачает
+последний опубликованный релиз, создаст резервную копию и применит миграции.
+Ожидаемый итог в статусе — `"state":"success"`.
+
+```bash
+sudo /usr/local/sbin/factura-update.sh
+sudo cat /var/lib/factura/update-status.json
+```
+
+## Полная ручная установка
+
 Скрипт `/usr/local/sbin/factura-update.sh` принадлежит root: изменения из GitHub
 сами по себе не заменяют его на действующем сервере. Эта процедура выполняется
 через SSH **один раз** для перехода на релиз с исправленным механизмом
@@ -144,6 +186,10 @@ sudo systemctl daemon-reload && sudo systemctl restart factura
 
 1. Статус и причина: `sudo cat /var/lib/factura/update-status.json`,
    журнал `sudo tail -n 100 /var/log/factura/update.log`.
+   Если панель показывает только «переустановка файлов деплоя не удалась»,
+   ищите первую ошибку перед сообщением об откате. Если журнал сообщает о
+   неудачном запуске через `systemd-run`, дополнительно проверьте
+   `sudo journalctl -u factura-update.service -n 100 --no-pager`.
 2. Сервис не поднимается: `sudo systemctl status factura`,
    `journalctl -u factura -n 100`.
 3. Последняя резервная копия: `sudo ls -lt /var/backups/factura | head`.

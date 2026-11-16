@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq } from "drizzle-orm";
-import { getDb } from "../api/queries/connection";
+import { __getSqliteClient, getDb } from "../api/queries/connection";
 import { products } from "@db/schema";
+import { collectionsRouter } from "../api/collections-router";
 import {
   createCollection,
   updateCollection,
   listCollections,
+  listCollectionsWithProductCounts,
   deleteCollection,
 } from "../api/queries/collections";
 import {
@@ -51,11 +53,126 @@ describe("collections queries (SQLite)", () => {
     expect(updated.slug).toBe("spring");
   });
 
-  it("deletes a collection", async () => {
-    const c = await createCollection({ slug: "x", title: "X", sortOrder: 1 });
+  it("deletes only the requested empty collection", async () => {
+    const c = await createCollection({ slug: "x", title: "X" });
+    const other = await createCollection({ slug: "y", title: "Y" });
+    const product = await createProduct({
+      collectionId: other.id,
+      name: "P",
+      price: 100,
+    });
     await deleteCollection(c.id);
-    const list = await listCollections();
-    expect(list).toHaveLength(0);
+    expect(await listCollections()).toEqual([other]);
+    expect(await listAllProducts()).toEqual([product]);
+  });
+
+  it.each([true, false])(
+    "preserves a collection and its product when isActive is %s",
+    async isActive => {
+      const c = await createCollection({ slug: "x", title: "X" });
+      const product = await createProduct({
+        collectionId: c.id,
+        name: "P",
+        price: 100,
+      });
+      await updateProduct(product.id, { isActive });
+
+      await expect(deleteCollection(c.id)).rejects.toMatchObject({
+        code: "CONFLICT",
+      });
+      expect(await listCollections()).toEqual([c]);
+      expect(await listAllProducts()).toEqual([{ ...product, isActive }]);
+    }
+  );
+
+  it("returns NOT_FOUND for a missing collection", async () => {
+    await expect(deleteCollection(99)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("reports a conflict if a product appears after the initial check", async () => {
+    const c = await createCollection({ slug: "x", title: "X" });
+    // Run the insert after the application's check and before SQLite checks the foreign key.
+    __getSqliteClient().exec(`
+      CREATE TRIGGER insert_product_before_delete BEFORE DELETE ON collections
+      BEGIN
+        INSERT INTO products (collectionId, name, price) VALUES (OLD.id, 'New product', 100);
+      END;
+    `);
+
+    await expect(deleteCollection(c.id)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    expect(await listCollections()).toEqual([c]);
+  });
+
+  it("counts active and hidden products independently for each collection", async () => {
+    const empty = await createCollection({
+      slug: "empty",
+      title: "Empty",
+      sortOrder: 1,
+    });
+    const mixed = await createCollection({
+      slug: "mixed",
+      title: "Mixed",
+      sortOrder: 2,
+    });
+    const other = await createCollection({
+      slug: "other",
+      title: "Other",
+      sortOrder: 3,
+    });
+    await createProduct({
+      collectionId: mixed.id,
+      name: "Visible",
+      price: 100,
+    });
+    const hidden = await createProduct({
+      collectionId: mixed.id,
+      name: "Hidden",
+      price: 100,
+    });
+    await updateProduct(hidden.id, { isActive: false });
+    await createProduct({ collectionId: other.id, name: "Other", price: 100 });
+
+    expect(await listCollectionsWithProductCounts()).toEqual([
+      { ...empty, productCount: 0 },
+      { ...mixed, productCount: 2 },
+      { ...other, productCount: 1 },
+    ]);
+  });
+
+  it("restricts counts and deletion to administrators", async () => {
+    const collection = await createCollection({ slug: "x", title: "X" });
+    const context = {
+      req: new Request("http://localhost"),
+      resHeaders: new Headers(),
+    };
+    const guest = collectionsRouter.createCaller(context);
+    const member = collectionsRouter.createCaller({
+      ...context,
+      user: { authMethod: "telegram", role: "member", telegramId: 200 },
+    });
+    const admin = collectionsRouter.createCaller({
+      ...context,
+      user: { authMethod: "telegram", role: "admin", telegramId: 100 },
+    });
+
+    await expect(guest.listWithProductCounts()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(guest.delete({ id: collection.id })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(member.delete({ id: collection.id })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(await admin.listWithProductCounts()).toEqual([
+      { ...collection, productCount: 0 },
+    ]);
+    await admin.delete({ id: collection.id });
+    expect(await admin.listWithProductCounts()).toEqual([]);
   });
 
   it("orders by sortOrder asc", async () => {
@@ -68,11 +185,7 @@ describe("collections queries (SQLite)", () => {
 });
 
 describe("products queries (SQLite)", () => {
-  beforeEach(async () => {
-    resetDb();
-    // Без коллекции внешний ключ (даже без явного FK в SQLite) смысла не имеет,
-    // но collectionId всё равно нужен — берём реальный id.
-  });
+  beforeEach(() => resetDb());
 
   it("creates a product tied to a collection", async () => {
     const col = await createCollection({

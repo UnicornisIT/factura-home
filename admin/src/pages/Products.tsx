@@ -1,5 +1,6 @@
 import { ImageUpload } from "@/components/ImageUpload";
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -55,16 +56,65 @@ const EMPTY_FORM: ProductForm = {
 
 export default function Products() {
   const utils = trpc.useUtils();
-  const { data: collections } = trpc.collections.list.useQuery();
-  const { data: products } = trpc.products.listAll.useQuery();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const collectionFilter = searchParams.get("collectionId");
+  const hasFilter = collectionFilter !== null;
+  const collectionId = Number(collectionFilter);
+  const validFilterId =
+    collectionFilter !== null &&
+    /^\d+$/.test(collectionFilter) &&
+    Number.isSafeInteger(collectionId) &&
+    collectionId > 0;
+  const collectionsQuery = trpc.collections.list.useQuery();
+  const productsQuery = trpc.products.listAll.useQuery();
+  const { data: collections } = collectionsQuery;
+  const { data: products } = productsQuery;
+  const selectedCollection = validFilterId
+    ? collections?.find((c) => c.id === collectionId)
+    : undefined;
+  const visibleProducts = hasFilter
+    ? selectedCollection &&
+      products?.filter((p) => p.collectionId === collectionId)
+    : products;
+
+  let tableStatus: { message: string; role?: "status" | "alert" } | undefined;
+  if (
+    hasFilter &&
+    (!validFilterId || (collectionsQuery.isSuccess && !selectedCollection))
+  ) {
+    tableStatus = {
+      message:
+        "Коллекция не найдена. Сбросьте фильтр, чтобы увидеть все товары.",
+      role: "alert",
+    };
+  } else if (hasFilter && collectionsQuery.isError) {
+    tableStatus = { message: "Не удалось загрузить коллекции.", role: "alert" };
+  } else if (productsQuery.isError) {
+    tableStatus = { message: "Не удалось загрузить товары.", role: "alert" };
+  } else if (
+    productsQuery.isPending ||
+    (hasFilter && collectionsQuery.isPending)
+  ) {
+    tableStatus = { message: "Загрузка товаров…", role: "status" };
+  } else if (visibleProducts?.length === 0) {
+    tableStatus = {
+      message: hasFilter
+        ? "В этой коллекции пока нет товаров"
+        : "Товаров пока нет",
+    };
+  }
+  const tableProducts = tableStatus ? [] : (visibleProducts ?? []);
 
   const [editing, setEditing] = useState<ProductForm | null>(null);
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   const invalidate = async () => {
-    await utils.products.listAll.invalidate();
-    await utils.products.list.invalidate();
+    await Promise.all([
+      utils.products.listAll.invalidate(),
+      utils.products.list.invalidate(),
+      utils.collections.listWithProductCounts.invalidate(),
+    ]);
   };
 
   const saveProduct = trpc.products.update.useMutation({
@@ -135,9 +185,29 @@ export default function Products() {
   return (
     <AdminLayout
       title="Товары"
-      description={`${products?.length ?? 0} шт. в каталоге`}
+      description={
+        visibleProducts ? `${visibleProducts.length} шт. в каталоге` : undefined
+      }
       actions={<Button onClick={startCreate}>+ Добавить товар</Button>}
     >
+      {hasFilter && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {selectedCollection && (
+            <Badge variant="outline">Фильтр: {selectedCollection.title}</Badge>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("collectionId");
+              setSearchParams(next, { replace: true });
+            }}
+          >
+            Сбросить фильтр
+          </Button>
+        </div>
+      )}
       <Card>
         <Table>
           <TableHeader>
@@ -151,7 +221,7 @@ export default function Products() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(products ?? []).map((p) => {
+            {tableProducts.map((p) => {
               const col = collections?.find((c) => c.id === p.collectionId);
               return (
                 <TableRow key={p.id}>
@@ -217,13 +287,13 @@ export default function Products() {
                 </TableRow>
               );
             })}
-            {(products ?? []).length === 0 && (
+            {tableStatus && (
               <TableRow>
                 <TableCell
                   colSpan={6}
                   className="text-center text-slate-500 py-10"
                 >
-                  Товаров пока нет
+                  <span role={tableStatus.role}>{tableStatus.message}</span>
                 </TableCell>
               </TableRow>
             )}

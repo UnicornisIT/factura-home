@@ -44,8 +44,7 @@ async function migrate() {
   if (env.dbDialect === "sqlite") await securityTransaction(apply);
   else await apply(securitySql);
   await ensureOwner();
-  // Стартовый набор блоков конструктора из текущих текстов siteContent.
-  // Идемпотентно: на непустой таблице blocks ничего не делает.
+  // Сначала формируется публикация, затем из неё создаётся черновик.
   await ensureDefaultBlocks();
 }
 migrate()
