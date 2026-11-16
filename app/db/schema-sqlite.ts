@@ -1,5 +1,6 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
+import type { ContactDetails } from "../contracts/order-contacts";
 
 const ts = sql`((unixepoch()))`;
 
@@ -39,6 +40,10 @@ export const orders = sqliteTable("orders", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),
   contact: text("contact").notNull(),
+  contactDetails: text("contactDetails", {
+    mode: "json",
+  }).$type<ContactDetails>(),
+  requestKey: text("requestKey").unique(),
   comment: text("comment"),
   items: text("items").notNull(),
   total: integer("total").notNull(),

@@ -7,6 +7,7 @@ import { ordersRouter } from "./orders-router";
 import { orderNotificationsRouter } from "./order-notifications-router";
 import { contentRouter } from "./content-router";
 import { blocksRouter } from "./blocks-router";
+import { readCurrentVersion } from "./lib/system-update";
 import { systemRouter } from "./system-router";
 import { createRouter, publicQuery } from "./middleware";
 import { revokeSession, setSessionCookie } from "./session";
@@ -43,7 +44,11 @@ const authRouter = createRouter({
 });
 
 export const appRouter = createRouter({
-  ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
+  ping: publicQuery.query(async () => ({
+    ok: true,
+    ts: Date.now(),
+    version: await readCurrentVersion(),
+  })),
 
   auth: authRouter,
   allowlist: adminAllowlistRouter,

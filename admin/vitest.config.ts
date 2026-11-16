@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(adminRoot, "src"),
+      "@contracts": path.resolve(adminRoot, "../app/contracts"),
     },
   },
   test: {

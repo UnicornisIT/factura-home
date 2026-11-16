@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDb } from "../api/queries/connection";
 import { orders } from "@db/schema";
@@ -12,6 +13,7 @@ import {
 import { createCollection } from "../api/queries/collections";
 import { createProduct } from "../api/queries/products";
 import { resetDb } from "./helpers";
+import { ordersRouter } from "../api/orders-router";
 
 describe("orders queries (SQLite)", () => {
   beforeEach(async () => {
@@ -117,5 +119,140 @@ describe("orders queries (SQLite)", () => {
     await deleteOrder(o.id);
     const rows = await getDb().select().from(orders).where(eq(orders.id, o.id));
     expect(rows).toHaveLength(0);
+  });
+
+  const checkout = ordersRouter.createCaller({
+    req: new Request("http://localhost"),
+    resHeaders: new Headers(),
+  });
+  const cart = { name: " Иван ", items: [{ productId: 1, qty: 2 }] };
+
+  it.each([
+    [
+      { telegram: "@ivanov" },
+      { telegram: "ivanov", preferred: "telegram" },
+      "@ivanov",
+    ],
+    [
+      { phone: "+1 (202) 555-0123" },
+      { phone: "+12025550123", preferred: "phone" },
+      "+12025550123",
+    ],
+    [
+      { email: " ivan@example.ru " },
+      { email: "ivan@example.ru", preferred: "email" },
+      "ivan@example.ru",
+    ],
+    [
+      { telegram: "ivanov", email: "ivan@example.ru", preferred: "email" },
+      { telegram: "ivanov", email: "ivan@example.ru", preferred: "email" },
+      "ivan@example.ru",
+    ],
+    [
+      {
+        telegram: "@ivanov",
+        phone: "+44 20 7946-0958",
+        email: "ivan@example.ru",
+        preferred: "phone",
+      },
+      {
+        telegram: "ivanov",
+        phone: "+442079460958",
+        email: "ivan@example.ru",
+        preferred: "phone",
+      },
+      "+442079460958",
+    ],
+  ] as const)(
+    "creates and reads back contacts %j",
+    async (contactDetails, normalized, contact) => {
+      const saved = await checkout.create({ ...cart, contactDetails });
+      expect(saved).toMatchObject({
+        contact,
+        contactDetails: normalized,
+        name: "Иван",
+        total: 1300,
+      });
+      expect(await listOrders()).toEqual([saved]);
+    }
+  );
+
+  it.each([
+    { contactDetails: {} },
+    { contactDetails: { telegram: "@абвгд" } },
+    { contactDetails: { telegram: "https://t.me/ivanov" } },
+    { contactDetails: { telegram: "@ab cd" } },
+    { contactDetails: { telegram: "@abcd" } },
+    { contactDetails: { telegram: "a".repeat(33) } },
+    { contactDetails: { phone: "+1 CALL-ME" } },
+    { contactDetails: { phone: "+00 1234567" } },
+    { contactDetails: { phone: "+1 (202 555-0123" } },
+    { contactDetails: { phone: "123456" } },
+    { contactDetails: { phone: "0000000" } },
+    { contactDetails: { phone: "+1234567890123456" } },
+    { contactDetails: { email: "ivan@domain" } },
+    {
+      contactDetails: { telegram: "ivanov", email: "", preferred: "telegram" },
+    },
+    { contactDetails: { telegram: "ivanov", preferred: "email" } },
+    { contactDetails: { telegram: "ivanov", email: "ivan@example.ru" } },
+    { contactDetails: { telegram: "ivanov" }, name: "   " },
+    { contactDetails: { telegram: "ivanov" }, name: " Я " },
+    { contactDetails: { telegram: "ivanov" }, name: "Я".repeat(101) },
+    { contactDetails: { telegram: "ivanov" }, honeypot: " " },
+    { contactDetails: {}, contact: "ivan@example.ru" },
+    { contact: "произвольный текст" },
+    { contact: "123456" },
+    {},
+  ] as const)("rejects invalid checkout input %j", async input => {
+    await expect(checkout.create({ ...cart, ...input })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    expect(await listOrders()).toEqual([]);
+  });
+
+  it("deduplicates concurrent requests and retries using the same request ID", async () => {
+    const data = {
+      ...cart,
+      contactDetails: { email: "ivan@example.ru" },
+      requestId: randomUUID(),
+    };
+    const [first, second] = await Promise.all([
+      checkout.create(data),
+      checkout.create(data),
+    ]);
+    expect(second).toEqual(first);
+    expect(await checkout.create(data)).toEqual(first);
+    expect(await listOrders()).toEqual([first]);
+    const next = await checkout.create({ ...data, requestId: randomUUID() });
+    expect(next.id).not.toBe(first.id);
+  });
+
+  it("limits the same normalized contact even when the preferred method changes", async () => {
+    for (let i = 0; i < 5; i++) {
+      await checkout.create({
+        ...cart,
+        contactDetails: {
+          phone: "+1 (202) 555-0123",
+          email: `ivan${i}@example.ru`,
+          preferred: "email",
+        },
+      });
+    }
+    await expect(
+      checkout.create({ ...cart, contact: "12025550123" })
+    ).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    expect(await listOrders()).toHaveLength(5);
+  });
+
+  it("keeps stored legacy orders readable and validates legacy checkout input", async () => {
+    const old = await createOrder({ ...cart, contact: "Старый контакт" });
+    expect(old.contactDetails).toBeNull();
+    expect(await listOrders()).toEqual([old]);
+    const saved = await checkout.create({ ...cart, contact: "@ivanov" });
+    expect(saved).toMatchObject({
+      contact: "@ivanov",
+      contactDetails: { telegram: "ivanov", preferred: "telegram" },
+    });
   });
 });

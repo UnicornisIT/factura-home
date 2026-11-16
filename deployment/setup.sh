@@ -16,6 +16,7 @@
 #   6. При включении автообновления ставит /usr/local/sbin/factura-update.sh
 #      и ограниченную sudoers-запись для него.
 set -euo pipefail
+umask 022
 
 APP_USER="${APP_USER:-factura}"
 APP_PARENT="${APP_PARENT:-/opt/factura}"
@@ -211,7 +212,7 @@ FLUSH PRIVILEGES;
 SQL
 }
 
-write_env_file() {
+write_env_file() (
   local env_file="$APP_DIR/app/.env"
   umask 027
   cat >"$env_file" <<EOF
@@ -235,7 +236,7 @@ EOF
   chmod 640 "$env_file"
   chown "root:$APP_USER" "$env_file"
   log "Записан $env_file (640 root:$APP_USER)"
-}
+)
 
 install_service() {
   # ReadWritePaths сервиса — только данные и логи. Каталог скрипта обновления и
@@ -253,7 +254,7 @@ install_service() {
 healthcheck() {
   local url="http://${HOST}:${PORT}/api/trpc/ping" _
   for _ in $(seq 1 30); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl -fsS --max-time 5 "$url" >/dev/null 2>&1; then
       log "Healthcheck OK: $url"
       return 0
     fi
@@ -362,8 +363,8 @@ main() {
   # shellcheck disable=SC1091
   . "$APP_DIR/app/.env"
   set +a
-  sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm ci"
-  sudo -u "$APP_USER" bash -c "cd '$APP_DIR/admin' && npm ci"
+  sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm ci --include=dev"
+  sudo -u "$APP_USER" bash -c "cd '$APP_DIR/admin' && npm ci --include=dev"
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm run build"
   sudo -u "$APP_USER" bash -c "cd '$APP_DIR/app' && npm run db:migrate"
   if confirm "Заполнить пустой магазин демонстрационными данными (npm run seed)?"; then
@@ -376,7 +377,7 @@ main() {
     install_updater
   fi
   install_nginx
-  healthcheck || true
+  healthcheck || die "Установка не завершена: сервис не прошёл проверку запуска"
 
   echo
   log "Готово. Сводка:"

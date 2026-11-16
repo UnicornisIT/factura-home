@@ -6,7 +6,9 @@ import {
   type BlockContextValue,
 } from "@/components/blocks/BlockRenderer";
 import { designCssVars } from "@contracts/design";
+import { MAX_ORDER_ITEM_QUANTITY } from "@contracts/constants";
 import { Icon } from "@/components/Icon";
+import { CheckoutForm } from "@/components/CheckoutForm";
 
 type CartItem = { productId: number; name: string; price: number; qty: number };
 
@@ -38,9 +40,6 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [orderName, setOrderName] = useState("");
-  const [contact, setContact] = useState("");
-  const [comment, setComment] = useState("");
   const [receipt, setReceipt] = useState("");
   const order = trpc.orders.create.useMutation({
     onSuccess: saved => {
@@ -59,7 +58,9 @@ export default function Home() {
       const existing = prev.find(i => i.productId === p.id);
       if (existing) {
         return prev.map(i =>
-          i.productId === p.id ? { ...i, qty: Math.min(i.qty + 1, 50) } : i
+          i.productId === p.id
+            ? { ...i, qty: Math.min(i.qty + 1, MAX_ORDER_ITEM_QUANTITY) }
+            : i
         );
       }
       return [
@@ -74,7 +75,10 @@ export default function Home() {
       previous
         .map(item =>
           item.productId === productId
-            ? { ...item, qty: Math.min(item.qty + delta, 50) }
+            ? {
+                ...item,
+                qty: Math.min(item.qty + delta, MAX_ORDER_ITEM_QUANTITY),
+              }
             : item
         )
         .filter(item => item.qty > 0)
@@ -148,6 +152,7 @@ export default function Home() {
       coverImage: collection.coverImage,
     })),
     products: products ?? [],
+    cartQuantities: new Map(cart.map(item => [item.productId, item.qty])),
     activeSlug,
     onSelectCollection: setActiveSlug,
     onAddToCart: addToCart,
@@ -331,7 +336,9 @@ export default function Home() {
                     type="button"
                     className="btn btn-outline"
                     aria-label={`Увеличить количество: ${item.name}`}
-                    disabled={order.isPending || item.qty >= 50}
+                    disabled={
+                      order.isPending || item.qty >= MAX_ORDER_ITEM_QUANTITY
+                    }
                     onClick={() => changeQuantity(item.productId, 1)}
                   >
                     +
@@ -350,49 +357,12 @@ export default function Home() {
           </p>
           {receipt && <p role="status">{receipt}</p>}
           {cart.length > 0 && (
-            <form
-              className="cart-actions"
-              onSubmit={event => {
-                event.preventDefault();
-                order.mutate({
-                  name: orderName,
-                  contact,
-                  comment,
-                  items: cart.map(({ productId, qty }) => ({ productId, qty })),
-                });
-              }}
-            >
-              <label>
-                Ваше имя
-                <input
-                  required
-                  maxLength={100}
-                  value={orderName}
-                  onChange={event => setOrderName(event.target.value)}
-                />
-              </label>
-              <label>
-                Телефон, Telegram или email
-                <input
-                  required
-                  maxLength={320}
-                  value={contact}
-                  onChange={event => setContact(event.target.value)}
-                />
-              </label>
-              <label>
-                Комментарий
-                <textarea
-                  maxLength={2000}
-                  value={comment}
-                  onChange={event => setComment(event.target.value)}
-                />
-              </label>
-              {order.error && <p role="alert">{order.error.message}</p>}
-              <button className="btn" type="submit" disabled={order.isPending}>
-                {order.isPending ? "Отправка…" : "Оформить заказ"}
-              </button>
-            </form>
+            <CheckoutForm
+              items={cart.map(({ productId, qty }) => ({ productId, qty }))}
+              pending={order.isPending}
+              error={order.error?.message}
+              submitOrder={order.mutateAsync}
+            />
           )}
           <div className="cart-actions">
             {content?.telegram && (
@@ -406,7 +376,11 @@ export default function Home() {
                 Написать в Telegram
               </a>
             )}
-            <button className="btn btn-outline" onClick={() => setCart([])}>
+            <button
+              className="btn btn-outline"
+              disabled={order.isPending}
+              onClick={() => setCart([])}
+            >
               Очистить корзину
             </button>
           </div>

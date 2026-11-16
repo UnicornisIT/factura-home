@@ -20,7 +20,7 @@
 #       реальный handoff в transient unit systemd через sudoers (8),
 #       root-owned BACKUP_DIR 700 недоступен пользователю приложения (1),
 #       WAL-база под активной транзакцией: копия согласована, integrity ok (2,3,5)
-#   S2  повторный запуск: «already up to date» без изменений
+#   S2  повторная установка: новая резервная копия, сборка и перезапуск
 #   S3  резервное копирование без sqlite3 CLI через better-sqlite3 (4)
 #   S4  битый шаблон sudoers в релизе: рабочий sudoers не заменён, откат (7)
 #   S5  битый шаблон unit-файла: systemd-analyze verify отклоняет, юнит цел
@@ -108,6 +108,7 @@ log "Подготовка стенда"
 id -u "$IT_USER" >/dev/null 2>&1 || useradd --system --home "$APP_DIR" --shell /usr/sbin/nologin "$IT_USER"
 mkdir -p "$IT_ROOT" "$DATA_DIR/uploads" "$BACKUP_DIR" "$LOG_DIR" "$STUBS" "$TARROOT"
 chown -R "$IT_USER:$IT_USER" "$DATA_DIR" "$LOG_DIR"
+install -m 644 -o "$IT_USER" -g "$IT_USER" /dev/null "$DATA_DIR/npm-stub.log"
 chmod 700 "$BACKUP_DIR"
 # sudo uses secure_path, so the backup helper must see the same Node
 # version that npm ci used to install the native SQLite addon.
@@ -153,7 +154,7 @@ cat >"$STUBS/npm" <<EOF
 #!/usr/bin/env bash
 # Пути зашиты: вложенный sudo -u внутри скрипта обновления сбрасывает
 # окружение (secure_path + env_reset), переменные сюда не доехали бы.
-echo "npm \$*" >> "$IT_ROOT/npm-stub.log"
+echo "npm \$*" >> "$DATA_DIR/npm-stub.log"
 if [ -f "$IT_ROOT/slow" ]; then sleep 8; fi
 exit 0
 EOF
@@ -319,7 +320,7 @@ trigger_update() { # запуск обновления из cgroup сервис�
 reset_to_v001() {
   git_iso "$IT_USER" "$APP_DIR" checkout -qf v0.0.1
   rm -f "$STATUS_PATH"
-  : >"$IT_ROOT/npm-stub.log" 2>/dev/null || true
+  : >"$DATA_DIR/npm-stub.log"
 }
 make_db() { # реальная SQLite-база в WAL-режиме с одной зафиксированной строкой
   rm -f "$DATA_DIR"/factura.db*
@@ -378,12 +379,19 @@ check "юнит установлен из архива релиза (марке�
 check "sudoers заменён на версию из архива релиза" grep -q "$IT_USER" "$SUDOERS_FILE"
 
 # ==============================================================================
-log "S2. Повторный запуск: уже установлена последняя версия"
+log "S2. Повторная установка того же релиза"
 # ==============================================================================
 rm -f "$STATUS_PATH"
+: >"$DATA_DIR/npm-stub.log"
+PREVIOUS_INVOCATION="$(systemctl show "$SERVICE" --property=InvocationID --value)"
 trigger_update
-if wait_status success 60; then pass "повторный запуск завершился без обновления"; else fail "повторный запуск не завершился"; fi
-check "статус: already up to date" grep -q "already up to date" "$STATUS_PATH"
+if wait_status success 60; then pass "повторная установка завершилась"; else fail "повторная установка не завершилась"; fi
+check "создана новая резервная копия" test "$(latest_backup)" != "$DEST"
+check "зависимости с devDependencies установлены в обоих приложениях" \
+  test "$(grep -cx 'npm ci --include=dev' "$DATA_DIR/npm-stub.log")" -eq 2
+check "сборка выполнена" grep -Fxq 'npm run build' "$DATA_DIR/npm-stub.log"
+check "миграции выполнены" grep -Fxq 'npm run db:migrate' "$DATA_DIR/npm-stub.log"
+check "сервис перезапущен" test "$(systemctl show "$SERVICE" --property=InvocationID --value)" != "$PREVIOUS_INVOCATION"
 check "HEAD не изменился (v0.0.2)" bash -c "[ \"\$(git -C '$APP_DIR' describe --tags --exact-match 2>/dev/null)\" = v0.0.2 ]"
 
 # ==============================================================================
@@ -452,7 +460,7 @@ chmod 644 "$DATA_DIR/factura.db"
 chown "$IT_USER:$IT_USER" "$DATA_DIR/factura.db"
 check "статус: ошибка резервной копии БД" grep -q "резервную копию БД" "$STATUS_PATH"
 check "код не изменён (v0.0.1)" bash -c "[ \"\$(git -C '$APP_DIR' describe --tags --exact-match 2>/dev/null)\" = v0.0.1 ]"
-check "npm не вызывался (приложение не тронуто)" bash -c "! grep -q 'npm ci' '$IT_ROOT/npm-stub.log'"
+check "npm не вызывался (приложение не тронуто)" test ! -s "$DATA_DIR/npm-stub.log"
 
 # ==============================================================================
 log "S7. Конкурентный запуск: второй процесс отклоняется"

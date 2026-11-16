@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access, constants, readFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute } from "node:path";
 import { TRPCError } from "@trpc/server";
 import { env } from "./env";
 import { log } from "./logger";
@@ -37,17 +37,13 @@ export function __resetReleaseCacheForTests() {
   releaseCache = null;
 }
 
+// Встраивается esbuild: смена checkout не меняет версию работающего процесса.
+declare const FACTURA_BUILD_VERSION: string | undefined;
+
 export async function readCurrentVersion(): Promise<string | null> {
-  // Сервер работает из app/, VERSION лежит в корне репозитория.
-  for (const path of [resolve("..", "VERSION"), resolve("VERSION")]) {
-    try {
-      const version = (await readFile(path, "utf8")).trim();
-      if (version) return version;
-    } catch {
-      // пробуем следующий путь
-    }
-  }
-  return null;
+  return typeof FACTURA_BUILD_VERSION === "string"
+    ? FACTURA_BUILD_VERSION
+    : null;
 }
 
 export async function fetchLatestRelease(

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Check, Loader2, RefreshCw, ExternalLink } from "lucide-react";
-import { installationStatus, isHistoricalFailure } from "./server-update-state";
+import { installationStatus } from "./server-update-state";
 
 // Этапы должны совпадать со стадиями deployment/factura-update.sh.
 const STAGES = [
@@ -132,7 +132,7 @@ export default function ServerUpdate() {
     if (
       latest &&
       confirm(
-        `Обновить сервер до ${latest.tag}? Сервис будет перезапущен, магазин будет кратковременно недоступен.`,
+        `${upToDate ? "Повторно установить" : "Обновить сервер до"} ${latest.tag}? Будут установлены зависимости, собраны витрина, админка и API, применены миграции. Магазин будет временно недоступен.`,
       )
     ) {
       startUpdate.mutate();
@@ -189,7 +189,9 @@ export default function ServerUpdate() {
             <div className="flex items-center gap-2 font-medium">
               <StateBadge state={tracked.state} />
               {tracked.state === "success"
-                ? `Обновление до ${tracked.tag ?? "новой версии"} подтверждено сервером`
+                ? tracked.message === "already up to date"
+                  ? "Предыдущая проверка подтвердила только совпадение версии"
+                  : `Обновление до ${tracked.tag ?? "новой версии"} подтверждено сервером`
                 : "Обновление завершилось ошибкой"}
             </div>
             {tracked.message && (
@@ -208,7 +210,7 @@ export default function ServerUpdate() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-500">Текущая версия</span>
+              <span className="text-slate-500">Версия запущенной сборки</span>
               <span className="font-mono font-medium">
                 {currentVersion ? `v${currentVersion}` : "не определена"}
               </span>
@@ -221,7 +223,7 @@ export default function ServerUpdate() {
               <span className="text-slate-500">Статус</span>
               {status === "running" && <StateBadge state="running" />}
               {status === "up-to-date" && (
-                <Badge variant="success">установлена последняя версия</Badge>
+                <Badge variant="success">сборка последнего релиза</Badge>
               )}
               {(status === "update-available" || status === "unknown") && (
                 <Badge variant="outline">готово к обновлению</Badge>
@@ -246,12 +248,6 @@ export default function ServerUpdate() {
                   </span>
                   <StateBadge state={op.state} />
                 </div>
-                {isHistoricalFailure(upToDate, op) && (
-                  <p className="text-xs text-slate-400">
-                    Ошибка относится к прошлой попытке обновления — сейчас
-                    установлена актуальная версия, действий не требуется.
-                  </p>
-                )}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-slate-500">Версия</span>
                   <span className="font-mono text-xs">{op.tag ?? "—"}</span>
@@ -330,7 +326,6 @@ export default function ServerUpdate() {
             running ||
             awaitingResult ||
             !latest ||
-            upToDate ||
             startUpdate.isPending
           }
         >
@@ -340,12 +335,12 @@ export default function ServerUpdate() {
           {running || awaitingResult || startUpdate.isPending
             ? "Обновление выполняется…"
             : latest
-              ? `Обновить до ${latest.tag}`
+              ? `${upToDate ? "Повторно установить" : "Обновить до"} ${latest.tag}`
               : "Обновить"}
         </Button>
         {upToDate && !awaitingResult && (
           <span className="text-sm text-slate-500">
-            Установлена последняя версия
+            Повторная установка восстановит сборку и применит миграции
           </span>
         )}
         {running && (

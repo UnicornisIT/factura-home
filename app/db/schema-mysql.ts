@@ -8,7 +8,9 @@ import {
   int,
   boolean,
   bigint,
+  json,
 } from "drizzle-orm/mysql-core";
+import type { ContactDetails } from "../contracts/order-contacts";
 
 export const collections = mysqlTable("collections", {
   id: serial("id").primaryKey(),
@@ -50,6 +52,8 @@ export const orders = mysqlTable("orders", {
   id: serial("id").primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   contact: varchar("contact", { length: 320 }).notNull(),
+  contactDetails: json("contactDetails").$type<ContactDetails>(),
+  requestKey: varchar("requestKey", { length: 64 }).unique(),
   comment: text("comment"),
   items: text("items").notNull(), // JSON: [{productId, name, price, qty}]
   total: int("total").notNull(),

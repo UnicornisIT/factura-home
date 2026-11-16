@@ -1,5 +1,10 @@
 import type { OrderItemInput } from "../queries/orders";
 import {
+  contactLabels,
+  contactMethods,
+  displayContact,
+} from "@contracts/order-contacts";
+import {
   claimOrderNotification,
   finishOrderNotification,
   maxDeliveryAttempts,
@@ -88,7 +93,20 @@ function shorten(text: string, max: number) {
 
 function orderMessage(order: SavedOrder) {
   const singleLine = (value: string) => value.replace(/\s+/g, " ").trim();
-  const head = `Новый заказ #${order.id}\nПокупатель: ${singleLine(order.name)}\nКонтакт: ${singleLine(order.contact)}\n\n`;
+  const contacts = order.contactDetails;
+  const contactLines = contacts
+    ? [
+        "Способы связи:",
+        ...contactMethods.flatMap(method => {
+          const value = contacts[method];
+          return value
+            ? [`${contactLabels[method]}: ${displayContact(method, value)}`]
+            : [];
+        }),
+        `\nПредпочтительный способ: ${contactLabels[contacts.preferred]}`,
+      ].join("\n")
+    : `Контакт: ${singleLine(order.contact)}`;
+  const head = `Новый заказ #${order.id}\nПокупатель: ${singleLine(order.name)}\n${contactLines}\n\n`;
   const total = `\n\nИтого: ${rubles.format(order.total)} ₽`;
   const items = JSON.parse(order.items) as OrderItemInput[];
   const comment = order.comment?.trim();

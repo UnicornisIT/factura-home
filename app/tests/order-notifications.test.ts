@@ -80,6 +80,41 @@ afterEach(() => {
 });
 
 describe("order Telegram notifications", () => {
+  it("includes only provided contacts and marks the preferred method", async () => {
+    await subscribe();
+    const caller = appRouter.createCaller({
+      req: new Request("https://shop.example"),
+      resHeaders: new Headers(),
+    });
+    const place = (contactDetails: {
+      telegram?: string;
+      phone?: string;
+      email?: string;
+      preferred?: "email";
+    }) =>
+      caller.orders.create({
+        name: "Иван",
+        contactDetails,
+        items: [{ productId: 1, qty: 1 }],
+      });
+    await place({
+      telegram: "@ivanov",
+      phone: "+7 999 123-45-67",
+      email: "ivan@example.ru",
+      preferred: "email",
+    });
+    await place({ telegram: "ivanov" });
+    expect(await deliverNextOrderNotification()).toBe(true);
+    expect(await deliverNextOrderNotification()).toBe(true);
+    expect(requestBody().text).toContain(
+      "Способы связи:\nTelegram: @ivanov\nТелефон: +7 999 123 4567\nEmail: ivan@example.ru\n\nПредпочтительный способ: Email"
+    );
+    expect(requestBody(1).text).toContain(
+      "Telegram: @ivanov\n\nПредпочтительный способ: Telegram"
+    );
+    expect(requestBody(1).text).not.toMatch(/Телефон:|Email:/);
+  });
+
   it("sends saved order details to each subscribed administrator once", async () => {
     await addAllowlistEntry({ telegramId: 200 });
     await addAllowlistEntry({ telegramId: 300 });
@@ -270,8 +305,14 @@ describe("order Telegram notifications", () => {
         price: 700,
       });
     await createOrder({
-      name: "Имя",
+      name: "Я".repeat(100),
       contact: "@contact",
+      contactDetails: {
+        telegram: "contact",
+        phone: "+12025550123",
+        email: `${"a".repeat(64)}@${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(57)}.ru`,
+        preferred: "telegram",
+      },
       comment: "🏺".repeat(1000),
       items: Array.from({ length: 50 }, (_, i) => ({
         productId: i + 1,
@@ -284,6 +325,7 @@ describe("order Telegram notifications", () => {
     expect(message.match(/ × 1 /g)).toHaveLength(50);
     expect(message).toMatch(/Итого: 35\s000 ₽/);
     expect(message).toContain("Комментарий:");
+    expect(message).toContain("Предпочтительный способ: Telegram");
     expect(message).toBe(message.toWellFormed());
   });
 });
