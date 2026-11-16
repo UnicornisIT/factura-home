@@ -53,7 +53,8 @@ describe("verifyTelegramAuth", () => {
       TEST_BOT_TOKEN
     );
     // Меняем один байт в hash
-    auth.hash = auth.hash.slice(0, -2) + "00";
+    const replacement = auth.hash.endsWith("0") ? "1" : "0";
+    auth.hash = auth.hash.slice(0, -1) + replacement;
     const result = verifyTelegramAuth(auth, TEST_BOT_TOKEN);
     expect(result.ok).toBe(false);
     expect(result.ok === false && result.reason).toMatch(/Invalid hash/);
