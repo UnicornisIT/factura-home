@@ -2,13 +2,54 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   listVisibleBlocks,
   listAllBlocks,
-  createBlock,
-  updateBlock,
-  deleteBlock,
-  reorderBlocks,
   ensureDefaultBlocks,
 } from "../api/queries/blocks";
+import { blocksRouter } from "../api/blocks-router";
+import { env } from "../api/lib/env";
+import type { BlockType } from "@contracts/blocks";
 import { resetDb, seedSiteContent } from "./helpers";
+
+const { draft } = blocksRouter.createCaller({
+  req: new Request(env.publicOrigin),
+  resHeaders: new Headers(),
+  user: { authMethod: "telegram", role: "admin", telegramId: 100 },
+});
+
+async function createBlock(input: {
+  type: string;
+  data: Record<string, unknown>;
+}) {
+  const { version } = await draft.get();
+  const saved = await draft.create({
+    ...input,
+    type: input.type as BlockType,
+    version,
+  });
+  return (await draft.publish({ version: saved.version })).blocks.at(-1)!;
+}
+
+async function updateBlock(
+  id: number,
+  patch: Parameters<typeof draft.update>[0]["patch"]
+) {
+  const { version } = await draft.get();
+  const saved = await draft.update({ id, patch, version });
+  return (await draft.publish({ version: saved.version })).blocks.find(
+    block => block.id === id
+  )!;
+}
+
+async function deleteBlock(id: number) {
+  const { version } = await draft.get();
+  const saved = await draft.delete({ id, version });
+  await draft.publish({ version: saved.version });
+}
+
+async function reorderBlocks(ids: number[]) {
+  const { version } = await draft.get();
+  const saved = await draft.reorder({ ids, version });
+  return (await draft.publish({ version: saved.version })).blocks;
+}
 
 describe("blocks queries (SQLite)", () => {
   beforeEach(() => resetDb());
@@ -267,11 +308,11 @@ describe("blocks queries (SQLite)", () => {
       data: { title: "B", text: "b", align: "left", narrow: true },
     });
     // Пропущен один блок
-    await expect(reorderBlocks([a.id])).rejects.toThrow(/устарел/);
+    await expect(reorderBlocks([a.id])).rejects.toThrow(/полный список/);
     // Повторы
-    await expect(reorderBlocks([a.id, a.id])).rejects.toThrow(/повторяющиеся/);
+    await expect(reorderBlocks([a.id, a.id])).rejects.toThrow(/без повторов/);
     // Посторонний id
-    await expect(reorderBlocks([a.id, 999])).rejects.toThrow(/устарел/);
+    await expect(reorderBlocks([a.id, 999])).rejects.toThrow(/полный список/);
     // Состав не изменился — порядок сохранился
     const result = await listAllBlocks();
     expect(result.map(block => block.id)).toEqual([a.id, b.id]);

@@ -54,11 +54,20 @@ try {
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   assert.ok(ready, errors);
-  for (const path of ["/", "/admin/", "/admin/products"]) {
+  for (const path of [
+    "/",
+    "/editor-preview",
+    "/editor-preview/published",
+    "/admin/",
+    "/admin/products",
+    "/admin/builder",
+    "/admin/preview",
+  ]) {
     const response = await fetch(base + path, {
       headers: { accept: "text/html" },
     });
     assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
     const html = await response.text();
     assert.ok(html.includes('<div id="root"></div>'));
     const asset = html.match(/src="([^"]+\.js)"/)?.[1];
@@ -128,6 +137,16 @@ try {
   const denied = await fetch(base + "/api/trpc/allowlist.list");
   assert.equal(denied.status, 401);
   assert.ok(!(await denied.text()).includes('"stack"'));
+  const draftUrl = base + "/api/trpc/blocks.draft.get";
+  assert.equal((await fetch(draftUrl)).status, 401);
+  const draft = await fetch(draftUrl, {
+    headers: { cookie: cookie.split(";")[0] },
+  });
+  assert.equal(draft.status, 200);
+  assert.equal(draft.headers.get("cache-control"), "no-store");
+  const snapshot = (await draft.json()).result.data.json;
+  assert.equal(snapshot.hasChanges, false);
+  assert.ok(snapshot.blocks.length > 0);
   process.stdout.write(
     "Production smoke passed: clean migrations, seed, storefront, admin routes/assets, auth, cookies, CSRF.\n"
   );

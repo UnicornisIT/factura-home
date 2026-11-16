@@ -1878,3 +1878,21 @@ button:disabled {
     transition: none;
   }
 }
+.storefront-preview-banner {
+  position: sticky;
+  top: 0;
+  z-index: 51;
+  background: #fef3c7;
+  color: #78350f;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font:
+    600 0.875rem/1.4 system-ui,
+    sans-serif;
+}
+
+.storefront-preview-banner + .landing .header:not(.static) {
+  top: 2rem;
+}

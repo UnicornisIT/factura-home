@@ -8,6 +8,7 @@ interface AdminLayoutProps {
   title: string;
   description?: string;
   actions?: ReactNode;
+  onBeforeLogout?: () => boolean;
   children: ReactNode;
   /**
    * Минимальная роль для доступа к странице. По умолчанию "admin".
@@ -20,6 +21,7 @@ export function AdminLayout({
   title,
   description,
   actions,
+  onBeforeLogout,
   children,
   requireRole = "admin",
 }: AdminLayoutProps) {
@@ -43,7 +45,7 @@ export function AdminLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-canvas">
-      <Sidebar />
+      <Sidebar onBeforeLogout={onBeforeLogout} />
       <div className="flex flex-col flex-1 min-w-0">
         <Header title={title} description={description} actions={actions} />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>

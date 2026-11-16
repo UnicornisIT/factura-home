@@ -27,6 +27,7 @@ export function clearSqliteTables(client: import("better-sqlite3").Database) {
     "collections",
     "siteContent",
     "blocks",
+    "homePageDraft",
     "adminAllowlist",
   ]) {
     client.exec(`DELETE FROM ${t};`);

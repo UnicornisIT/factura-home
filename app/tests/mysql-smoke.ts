@@ -1,18 +1,98 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createConnection } from "mysql2/promise";
 import {
   ensureOwner,
   changeAccess,
   findActiveByTelegramId,
 } from "../api/queries/admin-allowlist";
 import { signSessionToken, verifySessionToken } from "../api/session";
-import { createCollection } from "../api/queries/collections";
-import { createProduct } from "../api/queries/products";
+import {
+  createCollection,
+  deleteCollection,
+  listCollectionsWithProductCounts,
+} from "../api/queries/collections";
+import { createProduct, updateProduct } from "../api/queries/products";
 import { listOrders } from "../api/queries/orders";
 import { ordersRouter } from "../api/orders-router";
 import { securitySql } from "../api/queries/security-store";
 import { env } from "../api/lib/env";
 import { deliverNextOrderNotification } from "../api/lib/order-telegram";
+import { blocksRouter } from "../api/blocks-router";
+import { blockDefaults } from "@contracts/blocks";
+
+async function checkHomePublication() {
+  const context = {
+    req: new Request(env.publicOrigin),
+    resHeaders: new Headers(),
+  };
+  const visitor = blocksRouter.createCaller(context);
+  const admin = blocksRouter.createCaller({
+    ...context,
+    user: { authMethod: "telegram", telegramId: 100, role: "super_admin" },
+  });
+  await assert.rejects(visitor.draft.get(), { code: "UNAUTHORIZED" });
+  const initial = await admin.draft.get();
+  const before = await visitor.list();
+  const first = {
+    id: -1,
+    type: "text" as const,
+    isVisible: true,
+    background: "#def",
+    data: blockDefaults("text"),
+  };
+  const second = {
+    id: -2,
+    type: "cover" as const,
+    isVisible: false,
+    background: null,
+    data: { ...blockDefaults("cover"), buttonLink: "#block--1" },
+  };
+  const saved = await admin.draft.save({
+    version: initial.version,
+    blocks: [first, second, ...initial.blocks],
+  });
+  assert.deepEqual(await visitor.list(), before);
+  await assert.rejects(admin.draft.publish({ version: initial.version }), {
+    code: "CONFLICT",
+  });
+  const connection = await createConnection(env.databaseUrl);
+  try {
+    await connection.query(
+      "CREATE TRIGGER smoke_reject_publication BEFORE UPDATE ON blocks FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'smoke publication failure'"
+    );
+    try {
+      await assert.rejects(
+        admin.draft.publish({ version: saved.version }),
+        /smoke publication failure/
+      );
+    } finally {
+      await connection.query("DROP TRIGGER smoke_reject_publication");
+    }
+  } finally {
+    await connection.end();
+  }
+  assert.deepEqual(await visitor.list(), before);
+  assert.deepEqual(await admin.draft.get(), saved);
+  const published = await admin.draft.publish({ version: saved.version });
+  const [text, cover, ...existing] = published.blocks;
+  assert.ok(text.id > 0 && cover.id > 0);
+  assert.equal(text.background, "#def");
+  assert.equal(cover.isVisible, false);
+  assert.equal(
+    cover.type === "cover" && cover.data.buttonLink,
+    `#block-${text.id}`
+  );
+  assert.deepEqual(
+    existing.map(block => block.id),
+    initial.blocks.map(block => block.id)
+  );
+  assert.deepEqual(await admin.draft.get(), published);
+  assert.deepEqual(
+    await visitor.list(),
+    published.blocks.filter(block => block.isVisible)
+  );
+}
 async function smoke() {
   await ensureOwner();
   await changeAccess(100, 200, "add");
@@ -34,6 +114,23 @@ async function smoke() {
     name: "Test",
     price: 700,
   });
+  const emptyCollection = await createCollection({
+    slug: randomUUID(),
+    title: "Empty",
+  });
+  await updateProduct(product.id, { isActive: false });
+  const counts = await listCollectionsWithProductCounts();
+  assert.equal(counts.find(row => row.id === collection.id)?.productCount, 1);
+  assert.equal(
+    counts.find(row => row.id === emptyCollection.id)?.productCount,
+    0
+  );
+  await assert.rejects(deleteCollection(collection.id), { code: "CONFLICT" });
+  await deleteCollection(emptyCollection.id);
+  await assert.rejects(deleteCollection(emptyCollection.id), {
+    code: "NOT_FOUND",
+  });
+  await updateProduct(product.id, { isActive: true });
   await securitySql(
     "INSERT INTO orderTelegramSubscriptions (telegramId, subscriptionKey) VALUES (?, ?), (?, ?)",
     [100, randomUUID(), 200, randomUUID()]
@@ -109,6 +206,7 @@ async function smoke() {
   ]);
   assert.equal((await findActiveByTelegramId(100))?.role, "super_admin");
   assert.ok((await securitySql("SELECT id FROM adminAuditLog")).length > 0);
+  await checkHomePublication();
 }
 smoke()
   .then(() => process.exit(0))

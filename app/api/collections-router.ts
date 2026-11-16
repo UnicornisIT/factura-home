@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createRouter, publicQuery, adminQuery } from "./middleware";
 import {
   listCollections,
+  listCollectionsWithProductCounts,
   createCollection,
   updateCollection,
   deleteCollection,
@@ -10,6 +11,9 @@ import {
 
 export const collectionsRouter = createRouter({
   list: publicQuery.query(() => listCollections()),
+  listWithProductCounts: adminQuery.query(() =>
+    listCollectionsWithProductCounts()
+  ),
 
   create: adminQuery
     .input(

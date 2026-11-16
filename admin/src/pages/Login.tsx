@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
+import { DeveloperContacts } from "@/components/DeveloperContacts";
+
 type TelegramUser = {
   id: number;
   first_name?: string;
@@ -49,27 +51,30 @@ export default function Login() {
   }, [config?.botName, mutate]);
   if (isAuthenticated && isAdmin) return <Navigate to="/" replace />;
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 space-y-6">
-        <div className="text-center space-y-1">
-          <div className="text-xl font-semibold text-[#5C2A2A]">
-            Глиняная мастерская
+    <div className="flex min-h-screen flex-col bg-slate-900 px-4">
+      <main className="flex flex-1 items-center justify-center py-8">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 space-y-6">
+          <div className="text-center space-y-1">
+            <h1 className="text-xl font-semibold text-[#5C2A2A]">
+              Панель администратора
+            </h1>
+            <p className="text-sm text-slate-500">Вход через Telegram</p>
           </div>
-          <p className="text-sm text-slate-500">Вход в админ-панель</p>
+          <div ref={container} className="flex justify-center min-h-[60px]" />
+          {!config?.botName && (
+            <p className="text-sm text-slate-500">Вход временно недоступен</p>
+          )}
+          {error && (
+            <p
+              role="alert"
+              className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2"
+            >
+              {error}
+            </p>
+          )}
         </div>
-        <div ref={container} className="flex justify-center min-h-[60px]" />
-        {!config?.botName && (
-          <p className="text-sm text-slate-500">Вход временно недоступен</p>
-        )}
-        {error && (
-          <p
-            role="alert"
-            className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2"
-          >
-            {error}
-          </p>
-        )}
-      </div>
+      </main>
+      <DeveloperContacts />
     </div>
   );
 }

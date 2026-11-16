@@ -1,13 +1,17 @@
 import { asc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "./connection";
-import { insertAndReturn } from "./_shared";
-import { securityTransaction } from "./security-store";
+import {
+  runSqlTransaction,
+  securitySql,
+  type SqlTransaction,
+} from "./security-store";
 import { env } from "../lib/env";
-import { blocks, siteContent } from "@db/schema";
-import type { Block as BlockRow } from "@db/schema";
+import { blocks } from "@db/schema";
+import type { Block as BlockRow, SiteContent } from "@db/schema";
 import {
   blockTypeSchema,
+  backgroundColorSchema,
   validateBlockData,
   parseStoredBlockData,
 } from "../lib/block-schemas";
@@ -19,11 +23,17 @@ import {
   type BlockType,
 } from "@contracts/blocks";
 
-function toApiBlock(row: BlockRow): Block | null {
+type StoredBlock = Pick<BlockRow, "type" | "data" | "background"> & {
+  id: number | string;
+  position: number;
+  isVisible: boolean | number;
+};
+
+function toApiBlock(row: StoredBlock): Block | null {
   const type = blockTypeSchema.safeParse(row.type);
   if (!type.success) return null;
   return {
-    id: row.id,
+    id: Number(row.id),
     type: type.data,
     position: row.position,
     isVisible: !!row.isVisible,
@@ -32,15 +42,11 @@ function toApiBlock(row: BlockRow): Block | null {
   } as Block;
 }
 
-function toApiBlocks(rows: BlockRow[]): Block[] {
+function toApiBlocks(rows: StoredBlock[]): Block[] {
   return rows
     .map(toApiBlock)
     .filter((block): block is Block => block !== null)
-    .sort((a, b) => a.position - b.position);
-}
-
-async function selectAllOrdered(): Promise<BlockRow[]> {
-  return getDb().select().from(blocks).orderBy(asc(blocks.position));
+    .sort((a, b) => a.position - b.position || a.id - b.id);
 }
 
 /** Видимые блоки для витрины. */
@@ -53,122 +59,32 @@ export async function listVisibleBlocks(): Promise<Block[]> {
   return toApiBlocks(rows);
 }
 
-/** Все блоки, включая скрытые — для конструктора в админ-панели. */
+/** Полная опубликованная версия, включая скрытые блоки. */
 export async function listAllBlocks(): Promise<Block[]> {
-  return toApiBlocks(await selectAllOrdered());
-}
-
-export async function createBlock(input: {
-  type: string;
-  data?: unknown;
-}): Promise<Block> {
-  const type = blockTypeSchema.parse(input.type);
-  const existing = await selectAllOrdered();
-  if (existing.length >= MAX_BLOCKS)
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Достигнут предел блоков на странице (${MAX_BLOCKS})`,
-    });
-  if (
-    SINGLETON_BLOCK_TYPES.includes(type) &&
-    existing.some(b => b.type === type)
-  )
-    throw new TRPCError({
-      code: "CONFLICT",
-      message: "Блок «Каталог», «Товары» или «Контакты» может быть только один",
-    });
-  const data = validateBlockData(type, input.data ?? blockDefaults(type));
-  const position =
-    existing.reduce((max, row) => Math.max(max, row.position), 0) + 1;
-  const row = await insertAndReturn(blocks, {
-    type,
-    position,
-    data: JSON.stringify(data),
-  });
-  const block = toApiBlock(row);
-  if (!block) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-  return block;
-}
-
-export async function updateBlock(
-  id: number,
-  input: { data?: unknown; isVisible?: boolean; background?: string | null }
-): Promise<Block> {
-  const [row] = await getDb().select().from(blocks).where(eq(blocks.id, id));
-  if (!row)
-    throw new TRPCError({ code: "NOT_FOUND", message: "Блок не найден" });
-  const type = blockTypeSchema.parse(row.type);
-  const update: Partial<Pick<BlockRow, "data" | "isVisible" | "background">> =
-    {};
-  if (input.data !== undefined)
-    update.data = JSON.stringify(validateBlockData(type, input.data));
-  if (input.isVisible !== undefined) update.isVisible = input.isVisible;
-  if (input.background !== undefined)
-    update.background = input.background || null;
-  await getDb().update(blocks).set(update).where(eq(blocks.id, id));
-  const [updated] = await getDb()
+  const rows: BlockRow[] = await getDb()
     .select()
     .from(blocks)
-    .where(eq(blocks.id, id));
-  const block = toApiBlock(updated);
-  if (!block) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
-  return block;
+    .orderBy(asc(blocks.position));
+  return toApiBlocks(rows);
 }
 
-export async function deleteBlock(id: number): Promise<void> {
-  await getDb().delete(blocks).where(eq(blocks.id, id));
-}
-
-/**
- * Атомарно переназначает позиции: принимает полный список id блоков
- * в новом порядке. Если состав id не совпадает с базой (блок успели
- * добавить или удалить), изменение отклоняется целиком.
- */
-export async function reorderBlocks(ids: number[]): Promise<Block[]> {
-  if (ids.length > MAX_BLOCKS)
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Слишком много блоков",
-    });
-  if (new Set(ids).size !== ids.length)
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Список содержит повторяющиеся блоки",
-    });
-  await securityTransaction(async sql => {
-    const lock = env.dbDialect === "mysql" ? " FOR UPDATE" : "";
-    const rows = await sql(`SELECT id FROM blocks${lock}`);
-    const existing = rows.map(row => Number(row.id)).sort((a, b) => a - b);
-    const provided = [...ids].sort((a, b) => a - b);
-    if (
-      existing.length !== provided.length ||
-      existing.some((value, index) => value !== provided[index])
-    )
-      throw new TRPCError({
-        code: "CONFLICT",
-        message: "Список блоков устарел — обновите страницу",
-      });
-    const stamp = env.dbDialect === "sqlite" ? "unixepoch()" : "NOW()";
-    for (let index = 0; index < ids.length; index++)
-      await sql(
-        `UPDATE blocks SET position = ?, updatedAt = ${stamp} WHERE id = ?`,
-        [index + 1, ids[index]]
-      );
-  });
-  return listAllBlocks();
-}
-
-/**
- * Создаёт стартовый набор блоков из текущих текстов siteContent,
- * если таблица блоков пуста. Используется seed-скриптом на свежей базе
- * (миграция 002 к этому моменту уже отработала впустую).
- */
+// Первичная настройка выполняется при миграции или после загрузки текстов.
 export async function ensureDefaultBlocks(): Promise<void> {
-  const existing = await selectAllOrdered();
-  if (existing.length > 0) return;
-  const db = getDb();
-  const [content] = await db.select().from(siteContent).limit(1);
-  if (!content) return;
+  await runSqlTransaction(() => initializeDraft(false));
+}
+
+function* addDefaultBlocks(
+  content: Pick<
+    SiteContent,
+    | "heroTitle"
+    | "heroText"
+    | "aboutTitle"
+    | "aboutText"
+    | "aboutImage"
+    | "deliveryTitle"
+    | "deliveryText"
+  >
+): SqlTransaction<void> {
   const defaults: { type: BlockType; data: unknown }[] = [
     {
       type: "cover",
@@ -204,10 +120,274 @@ export async function ensureDefaultBlocks(): Promise<void> {
   let position = 1;
   for (const item of defaults) {
     const data = validateBlockData(item.type, item.data);
-    await db.insert(blocks).values({
-      type: item.type,
-      position: position++,
-      data: JSON.stringify(data),
-    });
+    yield [
+      "INSERT INTO blocks (type, position, data) VALUES (?, ?, ?)",
+      [item.type, position++, JSON.stringify(data)],
+    ];
   }
+}
+
+type HomeDraft = {
+  version: number;
+  blocks: Block[];
+  hasChanges: boolean;
+};
+
+const mysql = env.dbDialect === "mysql";
+const lockRow = mysql ? " FOR UPDATE" : "";
+const stamp = mysql ? "NOW()" : "unixepoch()";
+
+function* publishedBlocks(): SqlTransaction<Block[]> {
+  const rows = yield [
+    "SELECT id, type, position, isVisible, data, background FROM blocks ORDER BY position, id",
+  ];
+  return toApiBlocks(rows as StoredBlock[]);
+}
+
+function initializeDraft(required: true): SqlTransaction<HomeDraft>;
+function initializeDraft(
+  required: false
+): SqlTransaction<HomeDraft | undefined>;
+function* initializeDraft(
+  required: boolean
+): SqlTransaction<HomeDraft | undefined> {
+  // The singleton row serializes initialization and every edit in MySQL.
+  yield [
+    mysql
+      ? "INSERT INTO homePageDraft VALUES (1, 0, '[]', 0) ON DUPLICATE KEY UPDATE id = id"
+      : "INSERT INTO homePageDraft VALUES (1, 0, '[]', 0) ON CONFLICT(id) DO NOTHING",
+  ];
+  const [row] = yield [
+    `SELECT version, snapshot, hasChanges FROM homePageDraft WHERE id = 1${lockRow}`,
+  ];
+  const version = Number(row.version);
+  if (version > 0) return decodeDraft(row);
+
+  let blocks = yield* publishedBlocks();
+  if (!blocks.length) {
+    const [content] = yield [
+      "SELECT heroTitle, heroText, aboutTitle, aboutText, aboutImage, deliveryTitle, deliveryText FROM siteContent LIMIT 1",
+    ];
+    if (!required && content) {
+      yield* addDefaultBlocks(
+        content as Parameters<typeof addDefaultBlocks>[0]
+      );
+      blocks = yield* publishedBlocks();
+    } else if (!required) {
+      // Migration can run before the initial texts are seeded.
+      yield ["DELETE FROM homePageDraft WHERE id = 1"];
+      return;
+    }
+  }
+  return yield* storeDraft(version, blocks, false);
+}
+
+function* storeDraft(
+  version: number,
+  blocks: Block[],
+  hasChanges: boolean
+): SqlTransaction<HomeDraft> {
+  const next = { version: version + 1, blocks, hasChanges };
+  yield [
+    "UPDATE homePageDraft SET version = ?, snapshot = ?, hasChanges = ? WHERE id = 1",
+    [next.version, JSON.stringify(blocks), Number(hasChanges)],
+  ];
+  return next;
+}
+
+function decodeDraft(row: Record<string, unknown>): HomeDraft {
+  return {
+    version: Number(row.version),
+    blocks: JSON.parse(String(row.snapshot)) as Block[],
+    hasChanges: Boolean(row.hasChanges),
+  };
+}
+
+export async function getHomeDraft(): Promise<HomeDraft> {
+  const [row] = await securitySql(
+    "SELECT version, snapshot, hasChanges FROM homePageDraft WHERE id = 1"
+  );
+  return row
+    ? decodeDraft(row)
+    : runSqlTransaction(() => initializeDraft(true));
+}
+
+function* versionedDraft(version: number): SqlTransaction<HomeDraft> {
+  const draft = yield* initializeDraft(true);
+  if (draft.version !== version)
+    throw new TRPCError({
+      code: "CONFLICT",
+      message:
+        "Черновик изменился. Загрузите актуальную версию перед продолжением.",
+    });
+  return draft;
+}
+
+export type DraftBlockInput = {
+  id: number;
+  type: BlockType;
+  isVisible: boolean;
+  background: string | null;
+  data: unknown;
+};
+
+function validateSnapshot(input: DraftBlockInput[], allowed: Block[]): Block[] {
+  const existing = new Map(allowed.map(block => [block.id, block.type]));
+  const ids = new Set<number>();
+  const singletons = new Set<BlockType>();
+  if (input.length > MAX_BLOCKS)
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Достигнут предел блоков на странице (${MAX_BLOCKS})`,
+    });
+  return input.map((block, index) => {
+    const type = blockTypeSchema.parse(block.type);
+    if (ids.has(block.id) || (block.id > 0 && existing.get(block.id) !== type))
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Некорректный идентификатор блока",
+      });
+    ids.add(block.id);
+    if (SINGLETON_BLOCK_TYPES.includes(type)) {
+      if (singletons.has(type))
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Блок «Каталог», «Товары» или «Контакты» может быть только один",
+        });
+      singletons.add(type);
+    }
+    return {
+      id: block.id,
+      type,
+      position: index + 1,
+      isVisible: block.isVisible,
+      background: backgroundColorSchema.nullable().parse(block.background),
+      data: validateBlockData(type, block.data),
+    } as Block;
+  });
+}
+
+export function editHomeDraft(
+  version: number,
+  edit: (blocks: Block[]) => DraftBlockInput[]
+): Promise<HomeDraft> {
+  return runSqlTransaction(function* () {
+    const draft = yield* versionedDraft(version);
+    const blocks = validateSnapshot(edit(draft.blocks), draft.blocks);
+    const published = yield* publishedBlocks();
+    return yield* storeDraft(
+      version,
+      blocks,
+      JSON.stringify(blocks) !== JSON.stringify(published)
+    );
+  });
+}
+
+export function restoreHomeDraft(version: number): Promise<HomeDraft> {
+  return runSqlTransaction(function* () {
+    yield* versionedDraft(version);
+    return yield* storeDraft(version, yield* publishedBlocks(), false);
+  });
+}
+
+function remapAnchor(link: string, ids: Map<string, string>) {
+  const hash = link.indexOf("#");
+  if (hash < 0) return link;
+  const path = link.slice(0, hash);
+  if (
+    path &&
+    path !== "/" &&
+    path !== `${env.publicOrigin}/` &&
+    path !== env.publicOrigin
+  )
+    return link;
+  const target = link.slice(hash);
+  const anchor = ids.get(target);
+  if (!anchor && /^#block--\d+$/.test(target))
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Якорь ${target} ссылается на удалённый блок. Исправьте ссылку перед публикацией.`,
+    });
+  return anchor ? path + anchor : link;
+}
+
+function* remapNavigation(ids: Map<string, string>): SqlTransaction<void> {
+  const rows = yield [`SELECT id, navJson FROM siteContent${lockRow}`];
+  for (const row of rows) {
+    const raw = String(row.navJson);
+    let items: unknown;
+    try {
+      items = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(items)) continue;
+    let changed = false;
+    for (const item of items) {
+      if (typeof item?.anchor !== "string") continue;
+      const anchor = remapAnchor(item.anchor, ids);
+      if (anchor === item.anchor) continue;
+      item.anchor = anchor;
+      changed = true;
+    }
+    if (changed)
+      yield [
+        "UPDATE siteContent SET navJson = ? WHERE id = ?",
+        [JSON.stringify(items), Number(row.id)],
+      ];
+  }
+}
+
+export function publishHomeDraft(version: number): Promise<HomeDraft> {
+  return runSqlTransaction(function* () {
+    const draft = yield* versionedDraft(version);
+    if (!draft.hasChanges) return draft;
+    const published = yield* publishedBlocks();
+    const next = validateSnapshot(draft.blocks, published);
+    const retained = new Set(next.map(block => block.id));
+    const remapped = new Map<string, string>();
+    for (const block of next) {
+      if (block.id > 0) continue;
+      yield [
+        "INSERT INTO blocks (type, position, isVisible, background, data) VALUES (?, ?, ?, ?, ?)",
+        [
+          block.type,
+          block.position,
+          Number(block.isVisible),
+          block.background,
+          JSON.stringify(block.data),
+        ],
+      ];
+      const [row] = yield [
+        mysql
+          ? "SELECT LAST_INSERT_ID() AS id"
+          : "SELECT last_insert_rowid() AS id",
+      ];
+      const id = Number(row.id);
+      if (!Number.isSafeInteger(id))
+        throw new Error("Block identifier exceeds safe integer range");
+      remapped.set(`#block-${block.id}`, `#block-${id}`);
+      block.id = id;
+    }
+    for (const block of next) {
+      if (block.type === "cover")
+        block.data.buttonLink = remapAnchor(block.data.buttonLink, remapped);
+      yield [
+        `UPDATE blocks SET position = ?, isVisible = ?, background = ?, data = ?, updatedAt = ${stamp} WHERE id = ?`,
+        [
+          block.position,
+          Number(block.isVisible),
+          block.background,
+          JSON.stringify(block.data),
+          block.id,
+        ],
+      ];
+    }
+    for (const block of published)
+      if (!retained.has(block.id))
+        yield ["DELETE FROM blocks WHERE id = ?", [block.id]];
+    yield* remapNavigation(remapped);
+    return yield* storeDraft(version, next, false);
+  });
 }

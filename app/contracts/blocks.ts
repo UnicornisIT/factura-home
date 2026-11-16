@@ -69,6 +69,17 @@ export const ICON_LABELS: Record<IconKey, string> = {
 export const MAX_BLOCKS = 60;
 export const MAX_DATA_JSON_LENGTH = 60_000;
 
+export function createTemporaryBlockId(blocks: ReadonlyArray<{ id: number }>) {
+  const entropy = new Uint32Array(2);
+  let id: number;
+  // A sequential counter could immediately reuse IDs from a discarded draft.
+  do {
+    globalThis.crypto.getRandomValues(entropy);
+    id = -1 - (entropy[0] * 65536 + (entropy[1] & 0xffff));
+  } while (blocks.some(block => block.id === id));
+  return id;
+}
+
 export type IconFeature = { icon: IconKey; title: string };
 
 export type CoverData = {

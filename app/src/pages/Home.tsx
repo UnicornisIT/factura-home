@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+} from "react";
+import type { Block } from "@contracts/blocks";
 import { trpc } from "@/providers/trpc";
 import {
   BlockRenderer,
@@ -30,11 +37,14 @@ const CART_ICON = (
   </svg>
 );
 
-export default function Home() {
+export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
+  const preview = previewBlocks !== undefined;
   const { data: content } = trpc.content.get.useQuery();
   const { data: collections } = trpc.collections.list.useQuery();
   const { data: products } = trpc.products.list.useQuery();
-  const { data: blocks } = trpc.blocks.list.useQuery();
+  const { data: blocks } = trpc.blocks.list.useQuery(undefined, {
+    enabled: !preview,
+  });
 
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -85,7 +95,10 @@ export default function Home() {
     );
   };
 
-  const visibleBlocks = useMemo(() => blocks ?? [], [blocks]);
+  const visibleBlocks = useMemo(
+    () => previewBlocks?.filter(block => block.isVisible) ?? blocks ?? [],
+    [previewBlocks, blocks]
+  );
   const design = content?.design;
 
   // Якоря навигации: legacy-имена разделов → id соответствующих блоков.
@@ -184,8 +197,32 @@ export default function Home() {
     .join(" ");
   const showShopName = content?.showShopName !== false;
 
+  const keepLinksInPreview = (event: MouseEvent) => {
+    if (!(event.target instanceof Element)) return;
+    const href = event.target.closest("a[href]")?.getAttribute("href");
+    if (href?.startsWith("/#")) {
+      event.preventDefault();
+      document.getElementById(href.slice(2))?.scrollIntoView();
+    } else if (
+      href &&
+      (!href.startsWith("#") ||
+        event.button !== 0 ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey)
+    ) {
+      event.preventDefault();
+    }
+  };
+
   return (
-    <div className={rootClass} style={{ ...cssVars, minHeight: "100vh" }}>
+    <div
+      className={rootClass}
+      style={{ ...cssVars, minHeight: "100vh" }}
+      onClickCapture={preview ? keepLinksInPreview : undefined}
+      onAuxClickCapture={preview ? keepLinksInPreview : undefined}
+    >
       {/* Шапка */}
       <header
         className={`header${design && !design.headerSticky ? " static" : ""}`}
@@ -356,7 +393,10 @@ export default function Home() {
             Стоимость доставки и наличие подтвердим после получения заказа.
           </p>
           {receipt && <p role="status">{receipt}</p>}
-          {cart.length > 0 && (
+          {preview && cart.length > 0 && (
+            <p role="status">Оформление заказа отключено в предпросмотре.</p>
+          )}
+          {!preview && cart.length > 0 && (
             <CheckoutForm
               items={cart.map(({ productId, qty }) => ({ productId, qty }))}
               pending={order.isPending}

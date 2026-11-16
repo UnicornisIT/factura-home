@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS homePageDraft (
+  id INTEGER PRIMARY KEY,
+  version INTEGER NOT NULL,
+  snapshot TEXT NOT NULL,
+  hasChanges INTEGER NOT NULL
+);
