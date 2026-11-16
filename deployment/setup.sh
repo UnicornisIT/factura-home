@@ -253,15 +253,17 @@ select_paths() {
     ask_path BACKUP_DIR "Каталог резервных копий" /var/backups/factura
     ask_path LOG_DIR "Каталог журналов" /var/log/factura
   fi
-  [[ "$APP_USER" =~ ^[a-z_][a-z0-9_-]{0,30}$ ]] && [ "$APP_USER" != root ] ||
+  if [[ ! "$APP_USER" =~ ^[a-z_][a-z0-9_-]{0,30}$ || "$APP_USER" == root ]]; then
     die "Недопустимое имя системного пользователя"
+  fi
   if id "$APP_USER" >/dev/null 2>&1; then
     local uid uid_min
     uid="$(id -u "$APP_USER")"
     uid_min="$(awk '$1 == "UID_MIN" {print $2; exit}' /etc/login.defs)"
-    [ "$uid" -gt 0 ] && [ "$uid" -lt "${uid_min:-1000}" ] &&
-      [ "$(id -gn "$APP_USER")" = "$APP_USER" ] ||
+    if ! { [ "$uid" -gt 0 ] && [ "$uid" -lt "${uid_min:-1000}" ] &&
+      [ "$(id -gn "$APP_USER")" = "$APP_USER" ]; }; then
       die "Используйте отдельного системного пользователя с одноимённой группой"
+    fi
   fi
   local path
   for path in "$APP_DIR" "$DATA_DIR" "$UPLOAD_DIR" "$BACKUP_DIR" "$LOG_DIR"; do
@@ -329,8 +331,9 @@ select_database() {
     fi
   fi
   if [ -n "${DB_USER:-}" ]; then
-    [[ "$DB_USER" =~ ^[a-zA-Z0-9_]{1,32}$ ]] && [ "$DB_USER" != root ] ||
+    if [[ ! "$DB_USER" =~ ^[a-zA-Z0-9_]{1,32}$ || "$DB_USER" == root ]]; then
       die "Укажите отдельного пользователя приложения (буквы ASCII, цифры, _)"
+    fi
   fi
   if [ "$DB_DIALECT" = mysql ]; then
     [[ "$DB_NAME" =~ ^[a-zA-Z0-9_]{1,64}$ ]] || die "Недопустимое имя базы"
@@ -367,7 +370,9 @@ select_web() {
     certificate)
       ask_path TLS_CERT "Путь к PEM-файлу сертификата с цепочкой" "/etc/ssl/certs/$DOMAIN.pem" keep-links
       ask_path TLS_KEY "Путь к приватному ключу PEM" "/etc/ssl/private/$DOMAIN.key" keep-links
-      [ -r "$TLS_CERT" ] && [ -r "$TLS_KEY" ] || die "Сертификат или ключ недоступен"
+      if [[ ! -r "$TLS_CERT" || ! -r "$TLS_KEY" ]]; then
+        die "Сертификат или ключ недоступен"
+      fi
       ;;
     external)
       warn "Заранее настройте HTTPS-прокси для $PUBLIC_ORIGIN на http://$HOST:$PORT (локальный прокси или туннель)."
@@ -552,9 +557,10 @@ clone_release() {
     fi
   fi
   if [ -d "$APP_DIR/.git" ]; then
-    [ "$(app_git remote get-url origin)" = "$url" ] &&
-      [ "$(app_git describe --tags --exact-match)" = "$RELEASE_REF" ] ||
+    if [[ "$(app_git remote get-url origin)" != "$url" ||
+      "$(app_git describe --tags --exact-match)" != "$RELEASE_REF" ]]; then
       die "Остался checkout другого релиза в $APP_DIR. Выберите его тег или другой каталог."
+    fi
     return
   fi
   [ ! -e "$APP_DIR" ] || die "Каталог $APP_DIR занят"
@@ -669,9 +675,10 @@ SQL
 local_mysql_password() {
   local key="$APP_DIR:$DB_NAME:$DB_USER"
   if [ -e "$MYSQL_SETUP_STATE" ]; then
-    [ "$(stat -c '%u:%a' "$MYSQL_SETUP_STATE")" = 0:600 ] &&
-      [ "$(config get "$MYSQL_SETUP_STATE" INSTALLATION)" = "$key" ] ||
+    if [[ "$(stat -c '%u:%a' "$MYSQL_SETUP_STATE")" != 0:600 ||
+      "$(config get "$MYSQL_SETUP_STATE" INSTALLATION)" != "$key" ]]; then
       die "Найдены данные незавершённой настройки другой базы MySQL в $MYSQL_SETUP_STATE"
+    fi
     DB_PASS="$(config get "$MYSQL_SETUP_STATE" PASSWORD)"
   else
     DB_PASS="$(config random)"
