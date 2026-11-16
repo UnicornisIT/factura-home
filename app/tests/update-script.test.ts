@@ -107,10 +107,14 @@ async function createFixture() {
     "exit 0",
   ]);
   await writeStub("systemd-analyze", [
+    '[ "${2##*/}" = "${FACTURA_UNIT_FILE##*/}" ] || exit 1',
     'if [ -n "${STUB_VERIFY_FAIL:-}" ]; then echo "bad unit" >&2; exit 1; fi',
     "exit 0",
   ]);
-  await writeStub("visudo", ["exit 0"]);
+  await writeStub("visudo", [
+    'if [ -n "${STUB_VISUDO_FAIL:-}" ]; then echo "bad sudoers" >&2; exit 1; fi',
+    "exit 0",
+  ]);
   // Заглушка systemd-run синхронно запускает «transient unit»: тот же скрипт
   // с переменными из --setenv. Это воспроизводит реальную гонку — дочерний
   // процесс берёт flock, пока родитель ещё жив (ждёт возврата systemd-run).
@@ -322,6 +326,7 @@ describeBash("factura-update.sh", () => {
         "получение исходного кода",
         "установка зависимостей",
         "сборка приложения и админ-панели",
+        "проверка deployment-файлов",
         "миграция базы данных",
         "установка deployment-файлов",
         "перезапуск сервиса",
@@ -716,15 +721,34 @@ describeBash("factura-update.sh", () => {
     });
   }, 120000);
 
-  it("unit-файл не проходит systemd-analyze verify: юнит не заменён, выполнен откат", async () => {
+  it("не меняет юнит и не запускает миграцию, если systemd-analyze verify отклонил шаблон", async () => {
     await withFixture(async fx => {
       const result = fx.run({ STUB_VERIFY_FAIL: "1" });
       expect(result.status).not.toBe(0);
       const status = await fx.readStatus();
       expect(status.state).toBe("failed");
-      expect(status.message).toContain("файлов деплоя");
+      expect(status.message).toContain("не прошёл systemd-analyze verify");
       expect(status.message).toContain("откачен на v0.0.1");
       // Повреждённая конфигурация systemd не установлена.
+      expect(await readFile(fx.unitFile, "utf8")).toContain("Description=old");
+      expect(await fx.readStubLog()).not.toContain("npm run db:migrate");
+      expect(await fx.readLog()).toContain("bad unit");
+      expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("не меняет файлы деплоя и не запускает миграцию, если visudo отклонил шаблон", async () => {
+    await withFixture(async fx => {
+      const sudoersPath = fx.baseEnv.FACTURA_SUDOERS_FILE;
+      const oldSudoers = "# existing sudoers\n";
+      const oldScript = await readFile(fx.updateScript, "utf8");
+      await writeFile(sudoersPath, oldSudoers);
+      expect(fx.run({ STUB_VISUDO_FAIL: "1" }).status).not.toBe(0);
+      expect((await fx.readStatus()).message).toContain("не прошёл visudo");
+      expect(await fx.readLog()).toContain("bad sudoers");
+      expect(await fx.readStubLog()).not.toContain("npm run db:migrate");
+      expect(await readFile(sudoersPath, "utf8")).toBe(oldSudoers);
+      expect(await readFile(fx.updateScript, "utf8")).toBe(oldScript);
       expect(await readFile(fx.unitFile, "utf8")).toContain("Description=old");
       expect(fx.head()).toBe("v0.0.1");
     });

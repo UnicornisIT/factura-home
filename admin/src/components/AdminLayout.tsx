@@ -36,7 +36,7 @@ export function AdminLayout({
   // Не админ → на логин.
   if (!isAdmin) return <Navigate to="/login" replace />;
 
-  // Требуется super_admin, но юзер обычный админ → на дэшборд.
+  // Страница требует super_admin, поэтому обычный администратор попадёт на дашборд.
   if (requireRole === "super_admin" && !isSuperAdmin) {
     return <Navigate to="/" replace />;
   }

@@ -20,7 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const NAV_BASE = [
-  { to: "/", label: "Дэшборд", icon: LayoutDashboard, end: true },
+  { to: "/", label: "Дашборд", icon: LayoutDashboard, end: true },
   { to: "/orders", label: "Заказы", icon: ShoppingCart },
   { to: "/products", label: "Товары", icon: Package },
   { to: "/collections", label: "Коллекции", icon: FolderTree },

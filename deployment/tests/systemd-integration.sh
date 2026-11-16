@@ -423,7 +423,8 @@ printf 'TAG=v0.0.4\nCODE=200\n' >"$CURL_CONTROL"
 echo 'this is %%% not valid sudoers' >"$TARROOT/pkg/deployment/sudoers-factura-update"
 trigger_update
 if wait_status failed 120; then pass "обновление с битым sudoers отклонено"; else fail "обновление с битым sudoers не отклонено"; fi
-check "статус сообщает об ошибке файлов деплоя" grep -q "файлов деплоя" "$STATUS_PATH"
+check "статус сообщает об ошибке visudo" grep -q "не прошёл visudo" "$STATUS_PATH"
+check "миграция не запущена" bash -c "! grep -Fxq 'npm run db:migrate' '$DATA_DIR/npm-stub.log'"
 check "рабочий sudoers не изменён" bash -c "[ \"\$(md5sum '$SUDOERS_FILE' | cut -d' ' -f1)\" = '$GOOD_SUDOERS_SUM' ]"
 check "код откачен на v0.0.1" bash -c "[ \"\$(git -C '$APP_DIR' describe --tags --exact-match 2>/dev/null)\" = v0.0.1 ]"
 check "откат подтверждён работоспособностью сервиса" grep -q "работоспособен" "$STATUS_PATH"
@@ -444,6 +445,8 @@ trigger_update
 if wait_status failed 120; then pass "обновление с битым юнитом отклонено"; else fail "обновление с битым юнитом не отклонено"; fi
 check "юнит не заменён (verify не прошёл)" bash -c "[ \"\$(md5sum '$UNIT_FILE' | cut -d' ' -f1)\" = '$GOOD_UNIT_SUM' ]"
 check "журнал: verify отклонил шаблон" grep -q "systemd-analyze verify" "$UPDATE_LOG"
+check "статус сообщает об ошибке verify" grep -q "не прошёл systemd-analyze verify" "$STATUS_PATH"
+check "миграция не запущена" bash -c "! grep -Fxq 'npm run db:migrate' '$DATA_DIR/npm-stub.log'"
 check "код откачен на v0.0.1" bash -c "[ \"\$(git -C '$APP_DIR' describe --tags --exact-match 2>/dev/null)\" = v0.0.1 ]"
 mv "$IT_ROOT/valid.service" "$TARROOT/pkg/deployment/factura.service"
 

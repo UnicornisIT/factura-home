@@ -115,6 +115,9 @@ CRED_FILE=""
 API_CFG=""
 TRUSTED_DIR=""
 DEPLOY_SRC=""
+UPDATE_TMP=""
+UNIT_TMP_DIR=""
+SUDOERS_TMP=""
 
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r\t'; }
 
@@ -140,19 +143,22 @@ cleanup() { # временные файлы, включая содержащие
   [ -n "$CRED_FILE" ] && rm -f "$CRED_FILE"
   [ -n "$API_CFG" ] && rm -f "$API_CFG"
   [ -n "$TRUSTED_DIR" ] && rm -rf "$TRUSTED_DIR"
+  [ -n "$UPDATE_TMP" ] && rm -f -- "$UPDATE_TMP"
+  [ -n "$UNIT_TMP_DIR" ] && rm -rf -- "$UNIT_TMP_DIR"
+  [ -n "$SUDOERS_TMP" ] && rm -f -- "$SUDOERS_TMP"
   return 0
 }
 
 finish_failed() { # finish_failed message [rollback:true]
-  local message="$1"
+  local message="$1" deployment_restored=true
   echo "$(date -Is) [$OPERATION_ID] ОШИБКА: $message"
   if [ "${2:-false}" = true ] && [ -n "$CURRENT_REF" ] && [ -n "$APP_USER" ]; then
     echo "$(date -Is) [$OPERATION_ID] откат кода на $CURRENT_REF"
+    restore_deployment_files || deployment_restored=false
     if git_run checkout -f "$CURRENT_REF" &&
       run_as_app "npm ci --include=dev" &&
       run_in "$APP_DIR/admin" "npm ci --include=dev" &&
-      run_as_app "npm run build"; then
-      restore_deployment_files
+      run_as_app "npm run build" && [ "$deployment_restored" = true ]; then
       # Откат подтверждается healthcheck: «восстановлено» без проверки сервиса
       # недостоверно. БД не откатывается — миграции могут быть необратимы.
       if systemctl restart "$SERVICE" && healthcheck; then
@@ -309,7 +315,11 @@ if [ "${FACTURA_UPDATE_DETACHED:-0}" != "1" ] &&
   fi
 fi
 
-install_deployment_files() { # переустановка скрипта, юнита и sudoers
+deployment_failed() {
+  finish_failed "Ошибка установки файлов деплоя: $1 (подробности в журнале обновления)" true
+}
+
+prepare_deployment_files() {
   # Источник — архив тега, скачанный с GitHub (DEPLOY_SRC, root-owned), а не
   # рабочее дерево приложения: дерево принадлежит пользователю сервиса и
   # доверенным источником не является.
@@ -319,74 +329,84 @@ install_deployment_files() { # переустановка скрипта, юни
     return 0
   fi
   if [ -f "$src/factura-update.sh" ]; then
-    cp -f "$UPDATE_SELF" "$DEST/factura-update.sh.prev" 2>/dev/null || true
-    # install заменяет файл атомарно через rename: уже запущенный процесс
-    # продолжает выполняться из старого inode.
-    if [ "$(id -u)" -eq 0 ]; then
-      install -o root -g root -m 755 "$src/factura-update.sh" "$UPDATE_SELF"
-    else
-      install -m 755 "$src/factura-update.sh" "$UPDATE_SELF"
-    fi
+    UPDATE_TMP="$(mktemp "$(dirname "$UPDATE_SELF")/.factura-update-XXXXXX")" ||
+      deployment_failed "не удалось создать временный файл рядом с $UPDATE_SELF"
+    install -m 755 "$src/factura-update.sh" "$UPDATE_TMP" && bash -n "$UPDATE_TMP" ||
+      deployment_failed "не удалось подготовить или проверить скрипт обновления"
   fi
   if [ -f "$src/factura.service" ]; then
-    # Временный файл создаётся в каталоге юнитов: с суффиксом .service
-    # (systemd-analyze verify не принимает файлы без unit-суффикса), с ведущей
-    # точкой (systemd игнорирует dot-файлы до переименования) и в той же ФС —
-    # переименование атомарно.
-    local tmp
-    tmp="$(mktemp "$(dirname "$UNIT_FILE")/.$SERVICE-XXXXXX.service")" || return 1
+    # Проверяем юнит под его настоящим именем; временный каталог на той же
+    # файловой системе позволяет затем заменить юнит атомарно.
+    UNIT_TMP_DIR="$(mktemp -d "$(dirname "$UNIT_FILE")/.factura-unit-XXXXXX")" ||
+      deployment_failed "не удалось создать временный каталог рядом с $UNIT_FILE"
+    local tmp="$UNIT_TMP_DIR/$(basename "$UNIT_FILE")"
     # ReadWritePaths сервиса ограничен данными и логами: каталоги root-скрипта
     # и юнитов намеренно НЕ входят — их пишет transient unit от root.
     sed -e "s|@APP_DIR@|$APP_DIR|g" \
       -e "s|@APP_USER@|$APP_USER|g" \
       -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE")|g" \
-      "$src/factura.service" >"$tmp"
+      "$src/factura.service" >"$tmp" && chmod 644 "$tmp" ||
+      deployment_failed "не удалось подготовить юнит $UNIT_FILE"
     if command -v systemd-analyze >/dev/null 2>&1 &&
-      ! systemd-analyze verify "$tmp" >>"$LOG_FILE" 2>&1; then
-      rm -f "$tmp"
-      echo "$(date -Is) [$OPERATION_ID] шаблон юнита не прошёл systemd-analyze verify, юнит не заменён"
-      return 1
+      ! systemd-analyze verify "$tmp"; then
+      deployment_failed "юнит $UNIT_FILE не прошёл systemd-analyze verify"
     fi
-    [ -f "$UNIT_FILE" ] && cp -f "$UNIT_FILE" "$DEST/factura.service.prev"
-    chmod 644 "$tmp"
-    if [ "$(id -u)" -eq 0 ]; then chown root:root "$tmp"; fi
-    mv -f "$tmp" "$UNIT_FILE"
-    systemctl daemon-reload
   fi
   if [ -f "$src/sudoers-factura-update" ] && [ -f "$SUDOERS_FILE" ]; then
-    local stmp
-    stmp="$(mktemp "$(dirname "$SUDOERS_FILE")/.sudoers-XXXXXX")" || return 1
+    SUDOERS_TMP="$(mktemp "$(dirname "$SUDOERS_FILE")/.sudoers-XXXXXX")" ||
+      deployment_failed "не удалось создать временный файл рядом с $SUDOERS_FILE"
     sed -e "s/^factura /$APP_USER /" -e "s|@UPDATE_SCRIPT@|$UPDATE_SELF|" \
-      "$src/sudoers-factura-update" >"$stmp"
-    chmod 440 "$stmp"
-    if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$stmp" >/dev/null 2>&1; then
-      rm -f "$stmp"
-      echo "$(date -Is) [$OPERATION_ID] шаблон sudoers не прошёл проверку visudo, sudoers не заменён"
-      return 1
+      "$src/sudoers-factura-update" >"$SUDOERS_TMP" && chmod 440 "$SUDOERS_TMP" ||
+      deployment_failed "не удалось подготовить $SUDOERS_FILE"
+    if ! visudo -cf "$SUDOERS_TMP"; then
+      deployment_failed "файл $SUDOERS_FILE не прошёл visudo"
     fi
-    cp -f "$SUDOERS_FILE" "$DEST/sudoers.prev" 2>/dev/null || true
-    if [ "$(id -u)" -eq 0 ]; then chown root:root "$stmp"; fi
-    mv -f "$stmp" "$SUDOERS_FILE"
   fi
-  return 0
+}
+
+replace_deployment_file() {
+  local source="$1" target="$2" backup="$DEST/$3"
+  if [ -e "$target" ] || [ -L "$target" ]; then
+    cp -pT -- "$target" "$backup.tmp" && mv -fT -- "$backup.tmp" "$backup" ||
+      deployment_failed "не удалось сохранить прежний $target"
+  fi
+  mv -fT -- "$source" "$target" || deployment_failed "не удалось заменить $target"
+}
+
+install_deployment_files() {
+  if [ -n "$UPDATE_TMP" ]; then
+    replace_deployment_file "$UPDATE_TMP" "$UPDATE_SELF" factura-update.sh.prev
+    UPDATE_TMP=""
+  fi
+  if [ -n "$UNIT_TMP_DIR" ]; then
+    replace_deployment_file "$UNIT_TMP_DIR/$(basename "$UNIT_FILE")" "$UNIT_FILE" factura.service.prev
+    systemctl daemon-reload || deployment_failed "не удалось выполнить systemctl daemon-reload"
+  fi
+  if [ -n "$SUDOERS_TMP" ]; then
+    replace_deployment_file "$SUDOERS_TMP" "$SUDOERS_FILE" sudoers.prev
+    SUDOERS_TMP=""
+  fi
 }
 
 restore_deployment_files() { # возврат deployment-файлов из резервной копии
+  local result=0
   if [ -n "$DEST" ]; then
     if [ -f "$DEST/factura-update.sh.prev" ]; then
       if [ "$(id -u)" -eq 0 ]; then
-        install -o root -g root -m 755 "$DEST/factura-update.sh.prev" "$UPDATE_SELF"
+        install -o root -g root -m 755 "$DEST/factura-update.sh.prev" "$UPDATE_SELF" || result=1
       else
-        install -m 755 "$DEST/factura-update.sh.prev" "$UPDATE_SELF"
+        install -m 755 "$DEST/factura-update.sh.prev" "$UPDATE_SELF" || result=1
       fi
     fi
     if [ -f "$DEST/factura.service.prev" ]; then
-      cp -f "$DEST/factura.service.prev" "$UNIT_FILE"
-      systemctl daemon-reload
+      cp -f "$DEST/factura.service.prev" "$UNIT_FILE" &&
+        systemctl daemon-reload || result=1
     fi
-    [ -f "$DEST/sudoers.prev" ] && cp -f "$DEST/sudoers.prev" "$SUDOERS_FILE"
+    if [ -f "$DEST/sudoers.prev" ]; then
+      cp -f "$DEST/sudoers.prev" "$SUDOERS_FILE" || result=1
+    fi
   fi
-  return 0
+  return "$result"
 }
 
 sqlite_backup() { # sqlite_backup src dest — SQLite Backup API + integrity_check
@@ -627,11 +647,14 @@ run_in "$APP_DIR/admin" "npm ci --include=dev" || finish_failed "npm ci (admin) 
 set_stage "сборка приложения и админ-панели"
 run_as_app "npm run build" || finish_failed "сборка не удалась" true
 
+set_stage "проверка deployment-файлов"
+prepare_deployment_files
+
 set_stage "миграция базы данных"
 run_as_app "npm run db:migrate" || finish_failed "миграции не применились (БД не откатывается)" true
 
 set_stage "установка deployment-файлов"
-install_deployment_files || finish_failed "переустановка файлов деплоя не удалась" true
+install_deployment_files
 
 set_stage "перезапуск сервиса"
 systemctl restart "$SERVICE" || finish_failed "перезапуск сервиса не удался" true
