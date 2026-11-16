@@ -128,7 +128,7 @@ out=""; url=""
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift 2;;
-    -H|-w|-A|-u|--config) shift 2;;
+    -H|-w|-A|-u|--config|--max-time) shift 2;;
     -*) shift;;
     *) url="\$1"; shift;;
   esac
@@ -144,8 +144,8 @@ case "\$url" in
     printf '%s' "\${code:-200}"
     ;;
   *)
-    [ -f "$IT_ROOT/health-fail" ] && exit 7
-    exit 0
+    # Дождаться реального ответа после перезапуска, прежде чем продолжить тест.
+    exec /usr/bin/curl -fsS --max-time 5 "\$url"
     ;;
 esac
 exit 0
