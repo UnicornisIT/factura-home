@@ -134,8 +134,18 @@ describe("home page draft", () => {
       blocks: [
         textBlock,
         { ...about, background: "#ffffff", isVisible: false },
-        { ...cover, data: { ...cover.data, buttonLink: "/#block--102" } },
+        {
+          ...cover,
+          data: {
+            ...cover.data,
+            buttonLink: "/#block--102",
+            features: [{ icon: "hand", title: "Ручная работа" }],
+          },
+        },
       ],
+    });
+    expect((await admin.draft.get()).blocks[2].data).toMatchObject({
+      features: [{ icon: "hand", title: "Ручная работа" }],
     });
     const published = await admin.draft.publish({ version: saved.version });
     const [newBlock, oldAbout, newCover] = published.blocks;
@@ -150,7 +160,10 @@ describe("home page draft", () => {
     expect(newCover).toMatchObject({
       id: cover.id,
       position: 3,
-      data: { buttonLink: `/#block-${newBlock.id}` },
+      data: {
+        buttonLink: `/#block-${newBlock.id}`,
+        features: [{ icon: "hand", title: "Ручная работа" }],
+      },
     });
     expect(await visitor.list()).toEqual([newBlock, newCover]);
     expect(await admin.draft.get()).toEqual({

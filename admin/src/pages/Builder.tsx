@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useBeforeUnload, useBlocker, useSearchParams } from "react-router";
 import {
   DndContext,
@@ -173,12 +173,23 @@ export default function Builder() {
       editing.background !== draftBg);
   const unsaved = !!working || formChanged;
   const ordered = working?.blocks ?? query.data?.blocks ?? [];
-  const skipBlocker = useRef(false);
+  const previewBlocks =
+    formChanged && editing && draft
+      ? ordered.map((block) =>
+          block.id === editing.id
+            ? ({ ...block, data: draft, background: draftBg } as Block)
+            : block,
+        )
+      : ordered;
   const leaveMessage = "Есть несохранённые изменения. Покинуть редактор?";
   const blocker = useBlocker(
-    ({ nextLocation }) =>
+    ({ nextLocation, historyAction }) =>
       unsaved &&
-      !(skipBlocker.current && nextLocation.pathname.endsWith("/login")),
+      !(
+        historyAction === "REPLACE" &&
+        nextLocation.state?.loggedOut === true &&
+        nextLocation.pathname.endsWith("/login")
+      ),
   );
 
   useBeforeUnload((event) => {
@@ -288,11 +299,7 @@ export default function Builder() {
   return (
     <AdminLayout
       title="Редактор главной страницы"
-      onBeforeLogout={() => {
-        if (unsaved && !window.confirm(leaveMessage)) return false;
-        skipBlocker.current = true;
-        return true;
-      }}
+      onBeforeLogout={() => !unsaved || window.confirm(leaveMessage)}
     >
       {(error || query.error) && (
         <div
@@ -407,7 +414,7 @@ export default function Builder() {
               </Button>
             </div>
           </div>
-          <div className="grid items-start gap-4 2xl:grid-cols-[22rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[20rem_minmax(0,1fr)] 2xl:grid-cols-[22rem_minmax(0,1fr)]">
             <fieldset
               disabled={pending || query.isFetching}
               className="min-w-0 space-y-3"
@@ -432,7 +439,7 @@ export default function Builder() {
                   items={ordered.map((b) => b.id)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="grid gap-2">
+                  <div className="grid grid-cols-1 gap-2">
                     {ordered.map((block) => (
                       <SortableBlockCard
                         key={block.id}
@@ -469,7 +476,7 @@ export default function Builder() {
               </DndContext>
             </fieldset>
             <StorefrontPreview
-              blocks={ordered}
+              blocks={previewBlocks}
               version={query.data.version}
               expanded={expanded}
               onCollapse={() => setExpanded(false)}
@@ -566,13 +573,7 @@ export default function Builder() {
             <Button
               onClick={() => {
                 if (!editing || !draft) return;
-                changeBlocks(
-                  ordered.map((item) =>
-                    item.id === editing.id
-                      ? ({ ...item, data: draft, background: draftBg } as Block)
-                      : item,
-                  ),
-                );
+                changeBlocks(previewBlocks);
                 closeEdit();
               }}
               disabled={!formChanged}

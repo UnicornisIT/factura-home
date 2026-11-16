@@ -22,13 +22,23 @@ const config = {
 delete config.DEV_ADMIN_ORIGIN;
 let server: ReturnType<typeof spawn> | undefined;
 try {
-  for (const source of ["db/migrate.ts", "db/migrate.ts", "db/seed.ts"]) {
-    const result = spawnSync(process.execPath, ["--import", "tsx", source], {
-      env: config,
-      encoding: "utf8",
-      timeout: 30000,
-      windowsHide: true,
-    });
+  for (const command of [
+    ["db/migrate.ts"],
+    ["db/bootstrap-admins.ts", "200", "300"],
+    ["db/migrate.ts"],
+    ["db/bootstrap-admins.ts", "200", "300"],
+    ["db/seed.ts"],
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", "tsx", ...command],
+      {
+        env: config,
+        encoding: "utf8",
+        timeout: 30000,
+        windowsHide: true,
+      }
+    );
     assert.equal(result.status, 0, result.stderr);
   }
   server = spawn(process.execPath, ["dist/boot.js"], {
@@ -103,18 +113,30 @@ try {
     ).status,
     403
   );
-  const data = { id: 100, auth_date: Math.floor(Date.now() / 1000) };
-  const hash = createHmac(
-    "sha256",
-    createHash("sha256").update(config.TELEGRAM_BOT_TOKEN).digest()
-  )
-    .update(`auth_date=${data.auth_date}\nid=${data.id}`)
-    .digest("hex");
-  const login = await fetch(base + "/api/trpc/auth.telegram.verify", {
-    method: "POST",
-    headers: json,
-    body: JSON.stringify({ json: { ...data, hash } }),
-  });
+  const telegramLogin = (id: number) => {
+    const auth_date = Math.floor(Date.now() / 1000);
+    const hash = createHmac(
+      "sha256",
+      createHash("sha256").update(config.TELEGRAM_BOT_TOKEN).digest()
+    )
+      .update(`auth_date=${auth_date}\nid=${id}`)
+      .digest("hex");
+    return fetch(base + "/api/trpc/auth.telegram.verify", {
+      method: "POST",
+      headers: json,
+      body: JSON.stringify({ json: { id, auth_date, hash } }),
+    });
+  };
+  for (const id of [200, 300]) {
+    const admin = await telegramLogin(id);
+    assert.equal(admin.status, 200, await admin.text());
+    const permissions = await fetch(base + "/api/trpc/allowlist.list", {
+      headers: { cookie: admin.headers.get("set-cookie")!.split(";")[0] },
+    });
+    assert.equal(permissions.status, 403);
+  }
+  assert.equal((await telegramLogin(400)).status, 403);
+  const login = await telegramLogin(100);
   assert.equal(login.status, 200, await login.text());
   const cookie = login.headers.get("set-cookie") || "";
   assert.ok(

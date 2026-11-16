@@ -28,11 +28,16 @@ jobs:
             admin/package-lock.json
       - run: npm ci --prefix app
       - run: npm ci --prefix admin
+      - name: Check installer
+        run: |
+          shellcheck -x deployment/factura-update.sh deployment/setup.sh deployment/tests/setup.sh
+          node --test deployment/tests/setup-config.test.mjs
+          bash deployment/tests/setup.sh
       - name: Checks
         working-directory: app
         env:
           SUPER_ADMIN_TELEGRAM_ID: 100
-        run: npm run lint && npm run check && npm test && npm run build
+        run: npm run lint && npm run check && npm test && npm run build && npm run test:deployment
       - name: Extract changelog section
         id: notes
         run: |

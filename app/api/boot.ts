@@ -29,7 +29,10 @@ app.use("*", async (c, next) => {
       "frame-ancestors 'self' http://localhost:3001"
     );
   c.res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (c.req.path.startsWith("/api/") || c.req.path.startsWith("/admin"))
+  if (
+    c.req.path.startsWith("/api/") ||
+    (c.req.path.startsWith("/admin") && !c.res.headers.has("Cache-Control"))
+  )
     c.res.headers.set("Cache-Control", "no-store");
 });
 app.use("/api/*", async (c, next) => {

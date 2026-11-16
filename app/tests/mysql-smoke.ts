@@ -20,6 +20,7 @@ import { env } from "../api/lib/env";
 import { deliverNextOrderNotification } from "../api/lib/order-telegram";
 import { blocksRouter } from "../api/blocks-router";
 import { blockDefaults } from "@contracts/blocks";
+import { checkInitialAdmins } from "./bootstrap-admins-scenarios";
 
 async function checkHomePublication() {
   const context = {
@@ -207,6 +208,7 @@ async function smoke() {
   assert.equal((await findActiveByTelegramId(100))?.role, "super_admin");
   assert.ok((await securitySql("SELECT id FROM adminAuditLog")).length > 0);
   await checkHomePublication();
+  await checkInitialAdmins();
 }
 smoke()
   .then(() => process.exit(0))

@@ -56,3 +56,63 @@ body {
 .adm-pill--danger {
   @apply text-red-700 border-red-300 hover:bg-red-50;
 }
+
+.release-summary:has(.release-notes:empty) {
+  display: none;
+}
+
+.release-notes {
+  overflow-wrap: anywhere;
+}
+
+.release-notes > * + * {
+  @apply mt-3;
+}
+
+.release-notes :is(h1, h2, h3, h4, h5, h6) {
+  @apply font-semibold text-slate-900;
+}
+
+.release-notes :is(ul, ol) {
+  @apply space-y-1 pl-5;
+}
+
+.release-notes ul {
+  @apply list-disc;
+}
+
+.release-notes ol {
+  @apply list-decimal;
+}
+
+.release-notes .task-list-item {
+  @apply list-none;
+}
+
+.release-notes a[href] {
+  @apply text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand;
+}
+
+.release-notes :is(blockquote, pre) {
+  @apply rounded bg-slate-50 px-3 py-2;
+}
+
+.release-notes blockquote {
+  @apply border-l-2 border-slate-300;
+}
+
+.release-notes pre {
+  @apply overflow-x-auto;
+}
+
+.release-notes :not(pre) > code {
+  @apply rounded bg-slate-100 px-1 py-0.5 text-xs;
+}
+
+.release-notes :is(th, td) {
+  @apply border border-slate-200 px-2 py-1;
+}
+
+.release-notes th {
+  @apply bg-slate-50;
+}

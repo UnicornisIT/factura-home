@@ -1,7 +1,7 @@
 import { trpc } from "@/providers/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { NavLink } from "react-router";
+import { Link, NavLink } from "react-router";
 import {
   LayoutDashboard,
   Package,
@@ -9,13 +9,14 @@ import {
   LayoutTemplate,
   ShoppingCart,
   FileText,
+  LoaderCircle,
   LogOut,
   ExternalLink,
   ShieldCheck,
   RefreshCw,
   Palette,
 } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
+import { switchAccountPath, useAuth, useLogout } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const NAV_BASE = [
@@ -33,7 +34,8 @@ export function Sidebar({
 }: {
   onBeforeLogout?: () => boolean;
 }) {
-  const { user, logout, isSuperAdmin } = useAuth();
+  const { user, isSuperAdmin } = useAuth();
+  const { logout, isLoggingOut, logoutError } = useLogout();
   const { data: newOrders } = trpc.orders.newCount.useQuery(undefined, {
     refetchInterval: 15000,
     retry: false,
@@ -110,6 +112,9 @@ export function Sidebar({
           <ExternalLink className="h-3.5 w-3.5" />
           Открыть магазин
         </a>
+        <Button asChild variant="outline" size="sm" className="w-full">
+          <Link to={switchAccountPath}>Войти в другой аккаунт</Link>
+        </Button>
         <div className="flex items-center justify-between gap-2 bg-sidebar-hover rounded-md px-2 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
             {user?.photoUrl ? (
@@ -137,18 +142,33 @@ export function Sidebar({
             </div>
           </div>
           <Button
+            type="button"
             variant="ghost"
             size="icon"
+            disabled={isLoggingOut}
+            aria-busy={isLoggingOut}
             onClick={() => {
               if (!onBeforeLogout || onBeforeLogout()) logout();
             }}
             className="text-slate-400 hover:text-white hover:bg-sidebar-active"
-            title="Выйти"
-            aria-label="Выйти"
+            title={isLoggingOut ? "Выход…" : "Выйти"}
+            aria-label={isLoggingOut ? "Выход…" : "Выйти"}
           >
-            <LogOut className="h-4 w-4" />
+            {isLoggingOut ? (
+              <LoaderCircle
+                aria-hidden="true"
+                className="motion-safe:animate-spin"
+              />
+            ) : (
+              <LogOut aria-hidden="true" />
+            )}
           </Button>
         </div>
+        {logoutError && (
+          <p role="alert" className="px-2 text-xs text-red-200">
+            {logoutError}
+          </p>
+        )}
       </div>
     </aside>
   );

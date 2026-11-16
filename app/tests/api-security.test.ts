@@ -60,6 +60,31 @@ beforeEach(async () => {
   await ensureOwner();
 });
 describe("HTTP security and checkout", () => {
+  it("lets an administrator restore the static login background and re-enable animation", async () => {
+    expect(
+      await browser().client.adminAppearance.loginBackground.query()
+    ).toEqual({
+      enabled: true,
+    });
+    await expect(
+      browser().client.adminAppearance.setLoginBackground.mutate({
+        enabled: false,
+      })
+    ).rejects.toMatchObject({ data: { code: "UNAUTHORIZED" } });
+
+    await changeAccess(100, 200, "add");
+    const admin = browser();
+    await admin.client.auth.telegram.verify.mutate(signed(200));
+    for (const enabled of [false, true]) {
+      await admin.client.adminAppearance.setLoginBackground.mutate({ enabled });
+      expect(
+        await browser().client.adminAppearance.loginBackground.query()
+      ).toEqual({
+        enabled,
+      });
+    }
+  });
+
   it("allows signed owner/admin, denies strangers and tampered, expired, future and wrong-bot logins", async () => {
     const owner = browser();
     await owner.client.auth.telegram.verify.mutate(signed(100));
@@ -110,6 +135,50 @@ describe("HTTP security and checkout", () => {
     ).rejects.toThrow();
     await changeAccess(100, 200, "add");
     expect(await browser(second).client.auth.me.query()).toBeNull();
+  });
+  it("logs out the owner and creates a new session only for an allowed account", async () => {
+    await changeAccess(100, 200, "add");
+    await changeAccess(100, 300, "add");
+    await changeAccess(100, 300, "deactivate");
+    const current = browser();
+    const ownerLogin = signed(100);
+    await current.client.auth.telegram.verify.mutate(ownerLogin);
+    const oldCookie = current.cookie();
+    expect(await current.client.auth.me.query()).toMatchObject({
+      telegramId: 100,
+      role: "super_admin",
+    });
+
+    await expect(current.client.auth.logout.mutate()).resolves.toEqual({
+      success: true,
+    });
+    expect(current.cookie()).toBe(oldCookie.split("=")[0] + "=");
+    expect(await current.client.auth.me.query()).toBeNull();
+
+    for (const id of [999, 300]) {
+      await expect(
+        current.client.auth.telegram.verify.mutate(signed(id))
+      ).rejects.toMatchObject({
+        message: "Доступ запрещён",
+        data: { code: "FORBIDDEN" },
+      });
+      expect(await current.client.auth.me.query()).toBeNull();
+      expect(await securitySql("SELECT telegramId FROM adminSessions")).toEqual(
+        []
+      );
+      await expect(current.client.products.listAll.query()).rejects.toThrow();
+    }
+
+    await current.client.auth.telegram.verify.mutate(signed(200));
+    expect(await current.client.auth.me.query()).toMatchObject({
+      telegramId: 200,
+      role: "admin",
+    });
+    await expect(current.client.allowlist.list.query()).rejects.toThrow();
+    expect(await browser(oldCookie).client.auth.me.query()).toBeNull();
+    await expect(
+      browser().client.auth.telegram.verify.mutate(ownerLogin)
+    ).rejects.toThrow("Вход уже использован");
   });
   it("rejects anonymous protected API calls and has no test or old auth routes", async () => {
     const paths = [

@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: ShellCheck (deployment-скрипты)
-        run: shellcheck -x deployment/factura-update.sh deployment/setup.sh
+        run: shellcheck -x deployment/factura-update.sh deployment/setup.sh deployment/tests/setup.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -30,6 +30,10 @@ jobs:
             admin/package-lock.json
       - run: npm ci --prefix app
       - run: npm ci --prefix admin
+      - name: Installer configuration and wizard
+        run: |
+          node --test deployment/tests/setup-config.test.mjs
+          bash deployment/tests/setup.sh
       - run: npm audit --omit=dev --audit-level=moderate --prefix app
       - run: npm audit --omit=dev --audit-level=moderate --prefix admin
       - run: npm run lint && npm run format:check && npm run check && npm test && npm run build && npm run test:deployment

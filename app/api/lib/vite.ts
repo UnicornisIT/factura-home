@@ -31,6 +31,18 @@ export function serveStaticFiles(app: App) {
     serveStatic({
       root: "./dist/admin",
       rewriteRequestPath: p => p.replace(/^\/admin/, "") || "/",
+      onFound: (_path, c) => {
+        const asset = c.req.path.match(
+          /^\/admin\/assets\/(login-bg-[\w-]+\.webm)$/
+        );
+        if (asset && (c.res.status === 200 || c.res.status === 206)) {
+          c.res.headers.set(
+            "Cache-Control",
+            "public, max-age=31536000, immutable"
+          );
+          c.res.headers.set("ETag", `"${asset[1]}"`);
+        }
+      },
     })
   );
 

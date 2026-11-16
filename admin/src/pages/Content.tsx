@@ -4,7 +4,7 @@ import { AdminLayout } from "@/components/AdminLayout";
 import { ImageUpload } from "@/components/ImageUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { NavItem } from "@contracts/design";
 import { MAX_NAV_ITEMS } from "@contracts/design";
@@ -286,14 +286,6 @@ export default function Content() {
                   onChange={(e) => set("footerCta", e.target.value)}
                 />
               </div>
-              <div>
-                <Label>Дополнительный текст футера (необязательно)</Label>
-                <Input
-                  value={form.footerText}
-                  onChange={(e) => set("footerText", e.target.value)}
-                  placeholder="ИП Иванова · ОГРНИП 0000000000"
-                />
-              </div>
               <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <Label>Telegram (ссылка)</Label>
@@ -331,6 +323,23 @@ export default function Content() {
                 Пустые ссылки не показываются на сайте — ни в блоке «Контакты»,
                 ни в футере.
               </p>
+              <div className="space-y-2">
+                <Label htmlFor="seller-details">Реквизиты продавца</Label>
+                <Textarea
+                  id="seller-details"
+                  aria-describedby="seller-details-help"
+                  rows={3}
+                  maxLength={500}
+                  value={form.footerText}
+                  onChange={(e) => set("footerText", e.target.value)}
+                />
+                <p id="seller-details-help" className="text-xs text-slate-500">
+                  Укажите статус (ИП или самозанятый), ФИО, ИНН, ОГРНИП для ИП и
+                  другие сведения, которые хотите опубликовать. После сохранения
+                  реквизиты появятся под контактами. Чтобы скрыть их, очистите
+                  поле и сохраните изменения.
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>

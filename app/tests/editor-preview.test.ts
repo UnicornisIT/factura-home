@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { blockDefaults } from "@contracts/blocks";
+import { blockDefaults, ICON_KEYS } from "@contracts/blocks";
+import { Icon } from "../src/components/Icon";
 import EditorPreview from "../src/pages/EditorPreview";
 import Home from "../src/pages/Home";
 
@@ -79,6 +80,96 @@ describe("storefront preview", () => {
     expect(html).toContain("Предпросмотр — опубликованная версия");
     expect(html).toContain("Сейчас в магазине");
     expect(html).not.toContain("Только в черновике");
+  });
+
+  it.each(ICON_KEYS)(
+    "renders the %s icon in draft, published preview and storefront",
+    icon => {
+      const blocks = [
+        {
+          id: 1,
+          type: "cover",
+          isVisible: true,
+          position: 1,
+          background: null,
+          data: {
+            ...blockDefaults("cover"),
+            features: [{ icon, title: "Преимущество" }],
+          },
+        },
+        {
+          id: 2,
+          type: "delivery",
+          isVisible: true,
+          position: 2,
+          background: null,
+          data: {
+            ...blockDefaults("delivery"),
+            cards: [{ icon, title: "Условия", text: "Описание" }],
+          },
+        },
+      ];
+      queries.draft.mockReturnValue({ isSuccess: true, data: { blocks } });
+      queries.list.mockReturnValue({ data: blocks });
+
+      const feature = renderToStaticMarkup(
+        createElement(Icon, { name: icon, size: 18 })
+      );
+      const card = renderToStaticMarkup(
+        createElement(Icon, { name: icon, size: 22 })
+      );
+      for (const page of [
+        createElement(EditorPreview),
+        createElement(EditorPreview, { published: true }),
+        createElement(Home),
+      ]) {
+        const html = renderToStaticMarkup(page);
+        expect(html).toContain(`${feature}</span><span>Преимущество</span>`);
+        expect(html).toContain(
+          `${card}</span><div class="delivery-card-title">Условия</div>`
+        );
+      }
+    }
+  );
+
+  it("keeps the catalog and delivery links in the menu and the cart outside it", () => {
+    const blocks = [
+      {
+        id: 1,
+        type: "catalog",
+        isVisible: true,
+        position: 1,
+        background: null,
+        data: blockDefaults("catalog"),
+      },
+      {
+        id: 2,
+        type: "delivery",
+        isVisible: true,
+        position: 2,
+        background: null,
+        data: {
+          ...blockDefaults("delivery"),
+          title: "Доставка по всей России",
+        },
+      },
+    ];
+    queries.draft.mockReturnValue({ isSuccess: true, data: { blocks } });
+    queries.list.mockReturnValue({ data: blocks });
+
+    for (const published of [false, true]) {
+      const html = renderToStaticMarkup(
+        createElement(EditorPreview, { published })
+      );
+      const nav = html.match(/<nav[^>]*>(.*?)<\/nav>/)?.[0];
+      expect(nav).toContain('id="storefront-navigation"');
+      expect(nav).toContain('href="#block-1"');
+      expect(nav).toContain('href="#block-2">Доставка по всей России');
+      expect(nav).toContain('href="#contacts"');
+      expect(nav).not.toContain("Корзина");
+      expect(html).toContain('aria-controls="storefront-navigation"');
+      expect(html).toContain('aria-label="Корзина, товаров: 0"');
+    }
   });
 
   it("locks preview when the administrator query is denied", () => {

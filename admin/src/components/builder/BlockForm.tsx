@@ -21,44 +21,11 @@ import type {
   VideoData,
 } from "@contracts/blocks";
 import { ICON_KEYS, ICON_LABELS } from "@contracts/blocks";
-import {
-  ArrowDown,
-  ArrowUp,
-  CreditCard,
-  Clock,
-  Flame,
-  Gift,
-  Hand,
-  Heart,
-  Leaf,
-  Package,
-  Shield,
-  Sparkles,
-  Star,
-  Trash2,
-  Truck,
-} from "lucide-react";
+import { Icon } from "@server/src/components/Icon";
+import { ArrowDown, ArrowUp, Trash2 } from "lucide-react";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm";
-
-const ICON_COMPONENTS: Record<
-  IconKey,
-  React.ComponentType<{ className?: string }>
-> = {
-  leaf: Leaf,
-  gift: Gift,
-  truck: Truck,
-  clock: Clock,
-  hand: Hand,
-  heart: Heart,
-  star: Star,
-  shield: Shield,
-  box: Package,
-  card: CreditCard,
-  flame: Flame,
-  sparkle: Sparkles,
-};
 
 function Field({
   label,
@@ -104,7 +71,6 @@ function ImageField({
   );
 }
 
-/** Выбор иконки из безопасного набора контракта. */
 function IconPicker({
   value,
   onChange,
@@ -117,7 +83,6 @@ function IconPicker({
       <Label>Иконка</Label>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {ICON_KEYS.map((key) => {
-          const IconCmp = ICON_COMPONENTS[key];
           const active = key === value;
           return (
             <button
@@ -133,7 +98,7 @@ function IconPicker({
                   : "border-slate-200 text-slate-500 hover:border-slate-400"
               }`}
             >
-              <IconCmp className="h-4 w-4" />
+              <Icon name={key} size={18} />
             </button>
           );
         })}

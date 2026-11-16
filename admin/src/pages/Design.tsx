@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
@@ -74,26 +74,73 @@ function Toggle({
   label,
   hint,
   checked,
+  disabled,
   onChange,
 }: {
   label: string;
   hint: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const hintId = useId();
   return (
     <label className="flex items-start gap-2 text-sm">
       <input
         type="checkbox"
+        aria-label={label}
+        aria-describedby={hintId}
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         className="mt-0.5 h-4 w-4"
       />
       <span>
         {label}
-        <span className="block text-xs text-slate-500">{hint}</span>
+        <span id={hintId} className="block text-xs text-slate-500">
+          {hint}
+        </span>
       </span>
     </label>
+  );
+}
+
+function LoginBackgroundSetting() {
+  const utils = trpc.useUtils();
+  const preference = trpc.adminAppearance.loginBackground.useQuery();
+  const update = trpc.adminAppearance.setLoginBackground.useMutation({
+    onSuccess: () => utils.adminAppearance.loginBackground.invalidate(),
+  });
+
+  return (
+    <Card className="mb-4">
+      <CardHeader>
+        <CardTitle>Фон страницы входа</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {preference.data && (
+          <Toggle
+            label="Анимированный фон"
+            hint="При отключении на странице входа будет однотонный фон. Настройка сохраняется сразу."
+            checked={preference.data.enabled}
+            disabled={update.isPending}
+            onChange={(enabled) => update.mutate({ enabled })}
+          />
+        )}
+        {(preference.isPending || update.isPending) && (
+          <p role="status" className="text-sm text-slate-500">
+            {update.isPending ? "Сохранение…" : "Загрузка настройки…"}
+          </p>
+        )}
+        {(preference.isError || update.isError) && (
+          <p role="alert" className="text-sm text-red-800">
+            {update.isError
+              ? "Не удалось сохранить настройку фона. Попробуйте ещё раз."
+              : "Не удалось загрузить настройку фона."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -174,6 +221,7 @@ export default function Design() {
         </div>
       )}
 
+      <LoginBackgroundSetting />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>

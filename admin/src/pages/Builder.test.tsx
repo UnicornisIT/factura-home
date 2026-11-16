@@ -5,9 +5,21 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-import { createMemoryRouter, Link, RouterProvider } from "react-router";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  createMemoryRouter,
+  Link,
+  RouterProvider,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { blockDefaults, type Block } from "@contracts/blocks";
+import {
+  blockDefaults,
+  ICON_KEYS,
+  ICON_LABELS,
+  type Block,
+} from "@contracts/blocks";
+import { Icon } from "@server/src/components/Icon";
 import Builder from "./Builder";
 
 type Draft = { version: number; hasChanges: boolean; blocks: Block[] };
@@ -43,12 +55,34 @@ vi.mock("@/providers/trpc", () => ({
 }));
 
 vi.mock("@/components/AdminLayout", () => ({
-  AdminLayout: ({ children }: { children: React.ReactNode }) => (
-    <main>
-      <Link to="/products">Товары</Link>
-      {children}
-    </main>
-  ),
+  AdminLayout: ({
+    children,
+    onBeforeLogout,
+  }: {
+    children: React.ReactNode;
+    onBeforeLogout: () => boolean;
+  }) => {
+    const navigate = useNavigate();
+    return (
+      <main>
+        <Link to="/products">Товары</Link>
+        <Link to="/login?switch=1">Войти в другой аккаунт</Link>
+        <button
+          type="button"
+          onClick={() => {
+            if (onBeforeLogout())
+              void navigate("/login", {
+                replace: true,
+                state: { loggedOut: true },
+              });
+          }}
+        >
+          Выйти
+        </button>
+        {children}
+      </main>
+    );
+  },
 }));
 
 vi.mock("@/components/builder/StorefrontPreview", () => ({
@@ -58,6 +92,12 @@ vi.mock("@/components/builder/StorefrontPreview", () => ({
         .filter((block) => block.isVisible)
         .map((block) => block.id)
         .join(",") || "Пустой предпросмотр"}
+      <output aria-label="Иконка в предпросмотре">
+        {blocks.map((block) => {
+          if (block.type === "cover") return block.data.features?.[0]?.icon;
+          if (block.type === "delivery") return block.data.cards?.[0]?.icon;
+        })}
+      </output>
     </div>
   ),
 }));
@@ -69,6 +109,7 @@ function openEditor() {
         [
           { path: "/builder", element: <Builder /> },
           { path: "/products", element: <p>Каталог товаров</p> },
+          { path: "/login", element: <p>Страница входа</p> },
         ],
         { initialEntries: ["/builder"] },
       )}
@@ -105,6 +146,76 @@ afterEach(() => {
 });
 
 describe("home page editor", () => {
+  it.each(["cover", "delivery"] as const)(
+    "uses storefront icons and previews and saves the selected key in %s",
+    (type) => {
+      const block = { id: 12, position: 1, isVisible: true, background: null };
+      api.query.data.blocks = [
+        type === "cover"
+          ? {
+              ...block,
+              type,
+              data: {
+                ...blockDefaults(type),
+                features: [{ icon: "leaf", title: "Преимущество" }],
+              },
+            }
+          : {
+              ...block,
+              type,
+              data: {
+                ...blockDefaults(type),
+                cards: [{ icon: "leaf", title: "Условия", text: "Описание" }],
+              },
+            },
+      ];
+      const preview = () =>
+        screen.getByLabelText("Иконка в предпросмотре").textContent;
+      openEditor();
+      fireEvent.click(button("Редактировать блок"));
+      expect(button(ICON_LABELS.leaf).getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+
+      for (const key of ICON_KEYS) {
+        const option = screen.getByLabelText<HTMLButtonElement>(
+          ICON_LABELS[key],
+          { selector: "button" },
+        );
+        expect(option.title).toBe(ICON_LABELS[key]);
+        expect(option.innerHTML).toBe(
+          renderToStaticMarkup(<Icon name={key} size={18} />),
+        );
+      }
+      fireEvent.click(button(ICON_LABELS.hand));
+      expect(button(ICON_LABELS.hand).getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expect(preview()).toBe("hand");
+      fireEvent.click(button("Отмена"));
+      expect(preview()).toBe("leaf");
+      expect(api.save).not.toHaveBeenCalled();
+
+      fireEvent.click(button("Редактировать блок"));
+      fireEvent.click(button(ICON_LABELS.hand));
+      expect(button(ICON_LABELS.leaf).getAttribute("aria-pressed")).toBe(
+        "false",
+      );
+      fireEvent.click(button("Применить"));
+      expect(preview()).toBe("hand");
+      fireEvent.click(button("Сохранить черновик"));
+      expect(api.save.mock.lastCall?.[0]).toMatchObject({
+        blocks: [
+          {
+            data: {
+              [type === "cover" ? "features" : "cards"]: [{ icon: "hand" }],
+            },
+          },
+        ],
+      });
+    },
+  );
+
   it("previews local edits immediately and publishes only a confirmed, saved version", () => {
     openEditor();
     expect(button("Опубликовать").disabled).toBe(true);
@@ -157,5 +268,24 @@ describe("home page editor", () => {
       expect.stringContaining("несохранённые изменения"),
     );
     expect(screen.queryByText("Каталог товаров")).toBeNull();
+  });
+
+  it("warns before starting account switching and prompts only once for logout", async () => {
+    openEditor();
+    fireEvent.click(button("Скрыть блок"));
+    vi.mocked(window.confirm)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false);
+
+    fireEvent.click(
+      screen.getByRole("link", { name: "Войти в другой аккаунт" }),
+    );
+    fireEvent.click(button("Выйти"));
+    expect(window.confirm).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Страница входа")).toBeNull();
+
+    fireEvent.click(button("Выйти"));
+    expect(await screen.findByText("Страница входа")).toBeTruthy();
+    expect(window.confirm).toHaveBeenCalledTimes(3);
   });
 });
