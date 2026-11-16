@@ -3,6 +3,8 @@ export const Session = {
   maxAgeMs: 8 * 60 * 60 * 1000,
 } as const;
 
+export const MAX_ORDER_ITEM_QUANTITY = 50;
+
 export const ErrorMessages = {
   unauthenticated: "Authentication required",
   insufficientRole: "Insufficient permissions",

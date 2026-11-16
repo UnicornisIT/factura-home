@@ -21,13 +21,13 @@ import { cn } from "@/lib/utils";
 
 const NAV_BASE = [
   { to: "/", label: "Дэшборд", icon: LayoutDashboard, end: true },
+  { to: "/orders", label: "Заказы", icon: ShoppingCart },
   { to: "/products", label: "Товары", icon: Package },
   { to: "/collections", label: "Коллекции", icon: FolderTree },
   { to: "/builder", label: "Конструктор", icon: LayoutTemplate },
-  { to: "/orders", label: "Заказы", icon: ShoppingCart },
-  { to: "/content", label: "Тексты и контакты", icon: FileText },
-  { to: "/design", label: "Дизайн сайта", icon: Palette },
   { to: "/preview", label: "Предпросмотр", icon: Eye },
+  { to: "/design", label: "Дизайн сайта", icon: Palette },
+  { to: "/content", label: "Тексты и контакты", icon: FileText },
 ];
 
 export function Sidebar() {

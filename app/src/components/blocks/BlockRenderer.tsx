@@ -1,6 +1,7 @@
-import { useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import type { Block, BlockType } from "@contracts/blocks";
 import { foregroundFor, videoEmbedUrl } from "@contracts/blocks";
+import { MAX_ORDER_ITEM_QUANTITY } from "@contracts/constants";
 import {
   Icon,
   LeafDecor,
@@ -35,6 +36,7 @@ export type ContactLinks = {
 export type BlockContextValue = {
   collections: CatalogCollection[];
   products: CatalogProduct[];
+  cartQuantities: ReadonlyMap<number, number>;
   /** null — фильтр «Все категории». */
   activeSlug: string | null;
   onSelectCollection: (slug: string | null) => void;
@@ -539,6 +541,7 @@ function ProductsBlock({
           <ProductCard
             key={product.id}
             product={product}
+            quantity={ctx.cartQuantities.get(product.id) ?? 0}
             onAdd={() => ctx.onAddToCart(product)}
           />
         ))}
@@ -663,6 +666,7 @@ function ContactsBlock({
 
 function ProductCard({
   product,
+  quantity,
   onAdd,
 }: {
   product: {
@@ -672,9 +676,11 @@ function ProductCard({
     material: string | null;
     image: string | null;
   };
+  quantity: number;
   onAdd: () => void;
 }) {
-  const [added, setAdded] = useState(false);
+  const atLimit = quantity >= MAX_ORDER_ITEM_QUANTITY;
+  const quantityStatus = `«${product.name}» в корзине: ${quantity} шт.${atLimit ? " (максимум)" : ""}`;
   return (
     <div className="card">
       <div className="card-photo">
@@ -693,46 +699,42 @@ function ProductCard({
           </div>
         </div>
         <button
-          className={`card-buy ${added ? "added" : ""}`}
-          onClick={() => {
-            onAdd();
-            setAdded(true);
-            setTimeout(() => setAdded(false), 1200);
-          }}
-          aria-label={`Добавить «${product.name}» в корзину`}
+          type="button"
+          className="card-buy"
+          onClick={onAdd}
+          disabled={atLimit}
+          aria-label={
+            atLimit ? quantityStatus : `Добавить «${product.name}» в корзину`
+          }
         >
-          {added ? (
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="21" r="1" />
+            <circle cx="19" cy="21" r="1" />
+            <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
+          </svg>
+          {quantity > 0 && (
+            <span
+              key={quantity}
+              className="cart-count visible card-buy-count"
               aria-hidden="true"
             >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          ) : (
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="8" cy="21" r="1" />
-              <circle cx="19" cy="21" r="1" />
-              <path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12" />
-            </svg>
+              ×{quantity}
+            </span>
           )}
         </button>
+        <span className="sr-only" role="status">
+          {quantity > 0 ? quantityStatus : ""}
+        </span>
       </div>
     </div>
   );

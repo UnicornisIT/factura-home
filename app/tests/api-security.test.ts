@@ -92,15 +92,16 @@ describe("HTTP security and checkout", () => {
   it("rejects repeated login payloads and revoked/logged-out cookies", async () => {
     await changeAccess(100, 200, "add");
     const admin = browser();
-    await admin.client.auth.telegram.verify.mutate(signed(200));
+    const firstLogin = signed(200);
+    await admin.client.auth.telegram.verify.mutate(firstLogin);
     await expect(
-      browser().client.auth.telegram.verify.mutate(signed(200))
+      browser().client.auth.telegram.verify.mutate(firstLogin)
     ).rejects.toThrow();
     const oldCookie = admin.cookie();
     await admin.client.auth.logout.mutate();
     expect(await browser(oldCookie).client.auth.me.query()).toBeNull();
     await admin.client.auth.telegram.verify.mutate(
-      signed(200, Math.floor(Date.now() / 1000) - 1)
+      signed(200, firstLogin.auth_date - 1)
     );
     const second = admin.cookie();
     await changeAccess(100, 200, "deactivate");
@@ -186,7 +187,7 @@ describe("HTTP security and checkout", () => {
     const guest = browser();
     const saved = await guest.client.orders.create.mutate({
       name: "Иван",
-      contact: "@ivan",
+      contact: "@ivanov",
       items: [{ productId: product.id, qty: 2, price: 1, name: "Fake" }],
       total: 1,
     } as never);
@@ -202,16 +203,16 @@ describe("HTTP security and checkout", () => {
     ])
       await expect(
         guest.client.orders.create.mutate({
-          name: "X",
-          contact: "x",
+          name: "Иван",
+          contact: "@ivanov",
           items: [item],
         })
       ).rejects.toThrow();
     await updateProduct(product.id, { isActive: false });
     await expect(
       guest.client.orders.create.mutate({
-        name: "X",
-        contact: "x",
+        name: "Иван",
+        contact: "@ivanov",
         items: [{ productId: product.id, qty: 1 }],
       })
     ).rejects.toThrow();

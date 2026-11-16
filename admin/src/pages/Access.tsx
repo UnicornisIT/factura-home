@@ -120,14 +120,11 @@ export default function Access() {
           </form>
           <p className="text-xs text-slate-500 mt-2">
             Узнать свой Telegram ID можно у{" "}
-            <a
-              href="https://t.me/userinfobot"
-              target="_blank"
-              rel="noopener"
-              className="text-[#5C2A2A] hover:underline"
-            >
-              @userinfobot
-            </a>
+            <Button asChild variant="outline" size="sm">
+              <a href="https://t.me/userinfobot" target="_blank" rel="noopener">
+                @userinfobot
+              </a>
+            </Button>
           </p>
         </CardContent>
       </Card>

@@ -104,25 +104,23 @@ sudo -u factura sudo -n -l /usr/local/sbin/factura-update.sh   # sudoers вид�
 
 Проверка в панели (`/admin/server-update`, super_admin):
 
-1. «Текущая версия» = `$TAG`, статус «установлена последняя версия».
-2. Ошибка прошлой операции (если была) отображается только в блоке
-   «Последняя операция (история)» с пометкой, что она устарела.
+1. Версия в панели соответствует `$TAG`.
+2. Проверьте состояние последней операции. Начиная с v0.3.1 её ошибка остаётся видимой при совпадении версий.
 3. Контрольный прогон обновлятора без изменения версии:
 
 ```bash
 sudo /usr/local/sbin/factura-update.sh
 sudo cat /var/lib/factura/update-status.json
-# ожидалось: {"state":"success",...,"message":"already up to date",...}
+# ожидается state=success
 sudo tail -n 30 /var/log/factura/update.log
 ```
 
-Внимание: запуск из SSH не проверяет передачу обновления из cgroup сервиса в
-transient unit systemd (в этом сценарии скрипт завершается на стадии «уже
-установлена последняя версия»). Полная проверка настоящего handoff, sudoers и
-прав доступа выполняется интеграционным сценарием
-`deployment/tests/systemd-integration.sh` на изолированной тестовой VM — см.
-`docs/systemd-integration-test.md`. На production этот сценарий запускать
-нельзя.
+Начиная с v0.3.1, контрольный запуск создаёт резервную копию и повторяет полный
+цикл установки. У ранних версий совпадение тега даёт статус `already up to date`.
+Интеграционный сценарий `deployment/tests/systemd-integration.sh` проверяет
+передачу обновления из cgroup сервиса в transient unit systemd, sudoers и права
+доступа. Он запускается на изолированной тестовой VM по инструкции
+`docs/systemd-integration-test.md`.
 
 ## Откат процедуры
 

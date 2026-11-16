@@ -44,6 +44,7 @@
 # Ошибки фиксируются в статусе SERVER_UPDATE_STATUS_PATH (JSON, атомарно),
 # включая предварительные проверки, — панель всегда видит реальную причину.
 set -euo pipefail
+umask 022
 
 if [ "$(id -u)" -ne 0 ] && [ "${FACTURA_ALLOW_NONROOT:-0}" != "1" ]; then
   echo "Требуется root" >&2
@@ -148,7 +149,9 @@ finish_failed() { # finish_failed message [rollback:true]
   if [ "${2:-false}" = true ] && [ -n "$CURRENT_REF" ] && [ -n "$APP_USER" ]; then
     echo "$(date -Is) [$OPERATION_ID] откат кода на $CURRENT_REF"
     if git_run checkout -f "$CURRENT_REF" &&
-      run_as_app "npm ci" && run_as_app "npm run build"; then
+      run_as_app "npm ci --include=dev" &&
+      run_in "$APP_DIR/admin" "npm ci --include=dev" &&
+      run_as_app "npm run build"; then
       restore_deployment_files
       # Откат подтверждается healthcheck: «восстановлено» без проверки сервиса
       # недостоверно. БД не откатывается — миграции могут быть необратимы.
@@ -476,10 +479,17 @@ backup_database() { # backup_database dest_dir
 }
 
 healthcheck() {
-  local _
+  local expected="${1:-}" response _
   for _ in $(seq 1 "$HEALTHCHECK_TRIES"); do
-    if curl -fsS "$HEALTHCHECK_URL" >/dev/null 2>&1; then
-      return 0
+    if response="$(curl -fsS --max-time 5 "$HEALTHCHECK_URL" 2>/dev/null)"; then
+      if [ -z "$expected" ] || printf '%s' "$response" | node -e '
+        const { readFileSync } = require("node:fs");
+        try {
+          const version = JSON.parse(readFileSync(0, "utf8")).result.data.json.version;
+          process.exitCode = version === process.argv[1] ? 0 : 1;
+        } catch { process.exitCode = 1; }' "$expected"; then
+        return 0
+      fi
     fi
     sleep 1
   done
@@ -547,12 +557,10 @@ TARGET_TAG="$(printf '%s' "$RESPONSE" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\
   finish_failed "Недопустимое имя релиза: ${TARGET_TAG:-<пусто>}" false
 echo "$(date -Is) [$OPERATION_ID] последний релиз: $TARGET_TAG"
 
+# Даже при совпадении тега выполняем весь цикл: checkout не подтверждает
+# установку зависимостей, сборку, миграции и запуск нового процесса.
 if [ "$TARGET_TAG" = "$CURRENT_REF" ]; then
-  echo "$(date -Is) [$OPERATION_ID] уже установлена последняя версия"
-  STAGE="завершено"
-  DONE=1
-  write_status success "$TARGET_TAG" "already up to date" true
-  exit 0
+  echo "$(date -Is) [$OPERATION_ID] повторная установка $TARGET_TAG"
 fi
 
 # Deployment-файлы берутся из архива проверенного тега (доверенный источник —
@@ -572,7 +580,7 @@ set_stage "создание резервных копий"
 TS="$(date +%Y%m%d-%H%M%S)"
 SAFE_CURRENT="$(printf '%s' "$CURRENT_REF" | tr -c 'A-Za-z0-9._-' '_')"
 SAFE_TARGET="$(printf '%s' "$TARGET_TAG" | tr -c 'A-Za-z0-9._-' '_')"
-DEST="$BACKUP_DIR/${TS}-${SAFE_CURRENT}-to-${SAFE_TARGET}"
+DEST="$BACKUP_DIR/${TS}-${SAFE_CURRENT}-to-${SAFE_TARGET}-$$"
 mkdir -p "$DEST" || finish_failed "Не удалось создать каталог резервной копии $DEST" false
 chmod 700 "$BACKUP_DIR" 2>/dev/null || true
 chmod 700 "$DEST" 2>/dev/null || true
@@ -613,8 +621,8 @@ REMOTE="$(git_run rev-parse "refs/tags/$TARGET_TAG^{commit}")"
 [ "$ACTUAL" = "$REMOTE" ] || finish_failed "checkout не соответствует тегу $TARGET_TAG" true
 
 set_stage "установка зависимостей"
-run_as_app "npm ci" || finish_failed "npm ci (app) не удался" true
-run_in "$APP_DIR/admin" "npm ci" || finish_failed "npm ci (admin) не удался" true
+run_as_app "npm ci --include=dev" || finish_failed "npm ci (app) не удался" true
+run_in "$APP_DIR/admin" "npm ci --include=dev" || finish_failed "npm ci (admin) не удался" true
 
 set_stage "сборка приложения и админ-панели"
 run_as_app "npm run build" || finish_failed "сборка не удалась" true
@@ -629,7 +637,12 @@ set_stage "перезапуск сервиса"
 systemctl restart "$SERVICE" || finish_failed "перезапуск сервиса не удался" true
 
 set_stage "проверка работоспособности"
-healthcheck || finish_failed "healthcheck не прошёл после перезапуска" true
+EXPECTED_VERSION=""
+# Старые релизы не возвращают версию в ping; новые подтверждают запуск сборки.
+if [ -f "$APP_DIR/app/scripts/build-server.mjs" ]; then
+  EXPECTED_VERSION="${TARGET_TAG#v}"
+fi
+healthcheck "$EXPECTED_VERSION" || finish_failed "healthcheck не прошёл после перезапуска (ожидалась сборка $TARGET_TAG)" true
 
 set_stage "завершено"
 echo "$(date -Is) [$OPERATION_ID] обновлено $CURRENT_REF -> $TARGET_TAG"

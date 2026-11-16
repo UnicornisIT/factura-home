@@ -36,3 +36,32 @@ it("upgrades SQLite with existing orders and administrators without backfilling"
     db.close();
   }
 });
+
+it("adds structured contacts and a unique request key without changing existing orders", () => {
+  const directory = new URL("../db/migrations/", import.meta.url);
+  const db = new Database(":memory:");
+  const migration = "006_order_contacts.sqlite.sql";
+  try {
+    for (const file of readdirSync(directory).sort())
+      if (file.endsWith(".sqlite.sql") && file < migration)
+        db.exec(readFileSync(new URL(file, directory), "utf8"));
+    db.exec(
+      "INSERT INTO orders (name, contact, items, total) VALUES ('Buyer', '@buyer', '[]', 700)"
+    );
+    db.exec(readFileSync(new URL(migration, directory), "utf8"));
+    expect(
+      db.prepare("SELECT contact, contactDetails, requestKey FROM orders").get()
+    ).toEqual({ contact: "@buyer", contactDetails: null, requestKey: null });
+    const insert = db.prepare(
+      "INSERT INTO orders (name, contact, items, total, contactDetails, requestKey) VALUES ('Buyer', '@buyer', '[]', 700, ?, ?)"
+    );
+    const details = JSON.stringify({
+      telegram: "buyer",
+      preferred: "telegram",
+    });
+    insert.run(details, "request-key");
+    expect(() => insert.run(details, "request-key")).toThrow(/UNIQUE/);
+  } finally {
+    db.close();
+  }
+});

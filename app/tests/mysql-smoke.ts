@@ -8,7 +8,8 @@ import {
 import { signSessionToken, verifySessionToken } from "../api/session";
 import { createCollection } from "../api/queries/collections";
 import { createProduct } from "../api/queries/products";
-import { createOrder, listOrders } from "../api/queries/orders";
+import { listOrders } from "../api/queries/orders";
+import { ordersRouter } from "../api/orders-router";
 import { securitySql } from "../api/queries/security-store";
 import { env } from "../api/lib/env";
 import { deliverNextOrderNotification } from "../api/lib/order-telegram";
@@ -37,21 +38,48 @@ async function smoke() {
     "INSERT INTO orderTelegramSubscriptions (telegramId, subscriptionKey) VALUES (?, ?), (?, ?)",
     [100, randomUUID(), 200, randomUUID()]
   );
-  const order = await createOrder({
-    name: "Test",
-    contact: "test",
-    items: [{ productId: product.id, qty: 2 }],
+  const checkout = ordersRouter.createCaller({
+    req: new Request(env.publicOrigin),
+    resHeaders: new Headers(),
   });
+  const data = {
+    name: "Test",
+    contactDetails: {
+      telegram: "@buyer",
+      phone: "+1 (202) 555-0123",
+      email: "buyer@example.com",
+      preferred: "email" as const,
+    },
+    items: [{ productId: product.id, qty: 2 }],
+    requestId: randomUUID(),
+  };
+  const [order, duplicate] = await Promise.all([
+    checkout.create(data),
+    checkout.create(data),
+  ]);
+  assert.deepEqual(duplicate, order);
   assert.equal(order.total, 1400);
-  assert.ok((await listOrders()).some(entry => entry.id === order.id));
+  assert.equal(order.contact, "buyer@example.com");
+  assert.deepEqual(
+    (await listOrders()).find(entry => entry.id === order.id)?.contactDetails,
+    {
+      telegram: "buyer",
+      phone: "+12025550123",
+      email: "buyer@example.com",
+      preferred: "email",
+    }
+  );
   const sentTo: number[] = [];
+  const messages: string[] = [];
   assert.ok(
     env.telegramBotToken,
     "MySQL smoke requires a dummy Telegram token"
   );
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, init) => {
-    sentTo.push(JSON.parse(String(init?.body)).chat_id);
+    const body = JSON.parse(String(init?.body));
+    sentTo.push(body.chat_id);
+    messages.push(body.text);
     return Response.json({ ok: true });
   };
   try {
@@ -62,6 +90,13 @@ async function smoke() {
     await deliverNextOrderNotification();
     assert.equal(await deliverNextOrderNotification(), false);
     assert.deepEqual(sentTo.sort(), [100, 200]);
+    for (const message of messages) {
+      assert.match(
+        message,
+        /Telegram: @buyer\nТелефон: \+1 202 555 0123\nEmail: buyer@example.com/
+      );
+      assert.match(message, /Предпочтительный способ: Email/);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

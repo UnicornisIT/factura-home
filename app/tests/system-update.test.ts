@@ -43,9 +43,10 @@ async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
 }
 
 describe("current version", () => {
-  it("reads VERSION from the repository root", async () => {
-    const version = await readCurrentVersion();
-    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+  it("does not infer a deployed version from the source checkout", async () => {
+    expect(await readCurrentVersion()).toBeNull();
+    vi.stubGlobal("FACTURA_BUILD_VERSION", "0.3.0");
+    expect(await readCurrentVersion()).toBe("0.3.0");
   });
 });
 

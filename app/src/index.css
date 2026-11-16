@@ -159,6 +159,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   background: none;
   border: 1px solid var(--accent, #751b22);
@@ -171,6 +172,12 @@
   transition:
     background 0.2s,
     color 0.2s;
+}
+.cart-btn > svg {
+  flex-shrink: 0;
+}
+.cart-btn-label {
+  white-space: nowrap;
 }
 .cart-btn:hover {
   background: var(--accent, #751b22);
@@ -904,6 +911,7 @@
   margin-top: 4px;
 }
 .card-buy {
+  position: relative;
   flex-shrink: 0;
   width: 44px;
   height: 44px;
@@ -919,12 +927,26 @@
     background 0.2s,
     transform 0.2s;
 }
-.card-buy:hover {
+.card-buy:not(:disabled):hover {
   background: var(--accent-dark, #59131a);
   transform: scale(1.06);
 }
-.card-buy.added {
-  background: var(--olive, #57522c);
+.card-buy-count {
+  width: auto;
+  min-width: 22px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .card-buy-count {
+    animation: card-buy-count-pop 220ms ease-out;
+  }
+  @keyframes card-buy-count-pop {
+    40% {
+      transform: scale(1.2);
+    }
+  }
 }
 
 /* ── Доставка ──────────────────────────── */
@@ -1257,6 +1279,62 @@
   background: var(--card, #f1e6da);
   font: inherit;
 }
+.checkout-fields,
+.checkout-methods {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+.checkout-methods legend {
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.checkout-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.checkout-options label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  cursor: pointer;
+}
+.checkout-options input {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent, #751b22);
+}
+.checkout-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--text, #3e301e);
+  font-size: 13px;
+}
+.checkout-form input[aria-invalid="true"] {
+  border-color: #ad3737;
+  box-shadow: 0 0 0 1px #ad3737;
+}
+.checkout-website {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .checkout-contact {
+    animation: checkout-contact-in 180ms ease-out;
+  }
+  @keyframes checkout-contact-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+}
 .cart-actions form,
 form.cart-actions {
   margin-bottom: 16px;
@@ -1499,6 +1577,19 @@ form.cart-actions {
 }
 
 /* ── Адаптив ───────────────────────────── */
+@media (900px < width <= 1200px) {
+  .cart-btn {
+    flex-direction: column;
+    min-width: 84px;
+    min-height: 90px;
+    padding-inline: 8px;
+  }
+  .cart-btn .cart-count {
+    top: 0;
+    right: 0;
+  }
+}
+
 @media (max-width: 1024px) {
   .hero-split,
   .hero-split.image-left {

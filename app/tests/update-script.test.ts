@@ -94,6 +94,7 @@ async function createFixture() {
     "    ;;",
     "  *)",
     '    [ "${STUB_HEALTH_OK:-1}" = "1" ] || exit 7',
+    `    printf '{"result":{"data":{"json":{"version":"%s"}}}}' "\${STUB_RUNNING_VERSION:-0.0.2}"`,
     "    ;;",
     "esac",
     "exit 0",
@@ -169,6 +170,11 @@ async function createFixture() {
   git(workDir, ["tag", "v0.0.1"]);
   // v0.0.2 меняет контент и содержит deployment-файлы, как настоящий релиз.
   await writeFile(join(workDir, "README.md"), "# fixture v0.0.2\n");
+  await mkdir(join(workDir, "app", "scripts"));
+  await writeFile(
+    join(workDir, "app", "scripts", "build-server.mjs"),
+    "// fixture\n"
+  );
   await mkdir(join(workDir, "deployment"), { recursive: true });
   for (const name of [
     "factura-update.sh",
@@ -388,14 +394,37 @@ describeBash("factura-update.sh", () => {
     });
   }, 120000);
 
-  it("при уже установленной последней версии завершается без изменений", async () => {
+  it("при совпадении тега повторяет зависимости, сборку, миграции и перезапуск", async () => {
     await withFixture(async fx => {
       const result = fx.run({ STUB_GITHUB_TAG: "v0.0.1" });
       expect(result.status).toBe(0);
       const status = await fx.readStatus();
       expect(status.state).toBe("success");
-      expect(status.message).toContain("already up to date");
+      expect(status.message).not.toContain("already up to date");
+      const calls = await fx.readStubLog();
+      expect(calls.match(/npm ci --include=dev/g)).toHaveLength(2);
+      expect(calls).toContain("npm run build");
+      expect(calls).toContain("npm run db:migrate");
+      expect(calls).toContain("systemctl restart factura");
+      expect(calls.indexOf(".backup")).toBeLessThan(calls.indexOf("npm ci"));
       expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("при совпадении тега сбой миграции остаётся ошибкой и допускает повтор", async () => {
+    await withFixture(async fx => {
+      const options = {
+        STUB_GITHUB_TAG: "v0.0.1",
+        STUB_NPM_FAIL_STAGE: "db:migrate",
+        STUB_COUNTER: join(fx.dir, "npm-counter"),
+      };
+      expect(fx.run(options).status).not.toBe(0);
+      expect((await fx.readStatus()).state).toBe("failed");
+      expect(fx.run(options).status).toBe(0);
+      expect((await fx.readStatus()).state).toBe("success");
+      expect(
+        (await fx.readStubLog()).match(/npm ci --include=dev/g)
+      ).toHaveLength(6);
     });
   }, 120000);
 
@@ -519,6 +548,16 @@ describeBash("factura-update.sh", () => {
       expect(status.message).toContain("healthcheck");
       expect(status.message).toContain("откачен на v0.0.1");
       expect(fx.head()).toBe("v0.0.1");
+    });
+  }, 120000);
+
+  it("старый API с успешным ping не подтверждает запуск новой сборки", async () => {
+    await withFixture(async fx => {
+      expect(fx.run({ STUB_RUNNING_VERSION: "0.0.1" }).status).not.toBe(0);
+      expect((await fx.readStatus()).state).toBe("failed");
+      expect((await fx.readStatus()).message).toContain(
+        "ожидалась сборка v0.0.2"
+      );
     });
   }, 120000);
 

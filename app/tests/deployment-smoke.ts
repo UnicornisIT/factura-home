@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
@@ -65,6 +65,11 @@ try {
     assert.ok(asset);
     assert.equal((await fetch(base + asset)).status, 200);
   }
+  const ping = await (await fetch(base + "/api/trpc/ping")).json();
+  assert.equal(
+    ping.result.data.json.version,
+    (await readFile("../VERSION", "utf8")).trim()
+  );
   const json = {
     origin: config.PUBLIC_ORIGIN,
     "content-type": "application/json",

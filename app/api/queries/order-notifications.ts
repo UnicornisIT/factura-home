@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { env } from "../lib/env";
+import { contactDetailsSchema } from "@contracts/order-contacts";
 import {
   securitySql,
   withSqliteTransactionLock,
@@ -79,7 +80,7 @@ export async function claimOrderNotification(
 
 export async function readEligibleDelivery(delivery: Delivery, now: number) {
   const [row] = await notificationSql(
-    `SELECT o.id, o.name, o.contact, o.comment, o.items, o.total, q.telegramId
+    `SELECT o.id, o.name, o.contact, o.contactDetails, o.comment, o.items, o.total, q.telegramId
      FROM orderTelegramOutbox q
      JOIN orders o ON o.id = q.orderId
      JOIN adminAllowlist a ON a.telegramId = q.telegramId
@@ -87,11 +88,17 @@ export async function readEligibleDelivery(delivery: Delivery, now: number) {
      WHERE q.id = ? AND q.claimToken = ? AND q.availableAt > ? AND ${eligibleAdmin}`,
     [delivery.id, delivery.claimToken, now]
   );
+  const contacts = contactDetailsSchema.safeParse(
+    typeof row?.contactDetails === "string"
+      ? JSON.parse(row.contactDetails)
+      : row?.contactDetails
+  );
   return (
     row && {
       id: Number(row.id),
       name: String(row.name),
       contact: String(row.contact),
+      contactDetails: contacts.data,
       comment: row.comment === null ? null : String(row.comment),
       items: String(row.items),
       total: Number(row.total),
