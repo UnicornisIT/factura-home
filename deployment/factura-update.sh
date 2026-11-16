@@ -226,6 +226,7 @@ DATA_DIR="${FACTURA_DATA_DIR:-/var/lib/factura}"
 UPLOADS_DIR="$(read_env UPLOAD_DIR)"
 UPLOADS_DIR="${UPLOADS_DIR:-$DATA_DIR/uploads}"
 [[ "$UPLOADS_DIR" != /* ]] && UPLOADS_DIR="$APP_DIR/app/$UPLOADS_DIR"
+RW_PATHS="${FACTURA_RW_PATHS:-$DATA_DIR $(dirname "$LOG_FILE")}"
 HEALTHCHECK_URL="http://$HOST:$PORT/api/trpc/ping"
 HEALTHCHECK_TRIES="${FACTURA_HEALTHCHECK_TRIES:-30}"
 APP_USER="$(stat -c %U "$APP_DIR")"
@@ -343,9 +344,11 @@ prepare_deployment_files() {
     local tmp="$UNIT_TMP_DIR/${UNIT_FILE##*/}"
     # ReadWritePaths сервиса ограничен данными и логами: каталоги root-скрипта
     # и юнитов намеренно НЕ входят — их пишет transient unit от root.
-    if ! sed -e "s|@APP_DIR@|$APP_DIR|g" \
+    local -a environment_rules=()
+    if [ "${FACTURA_MANAGED_ENV:-false}" = true ]; then environment_rules=(-e '/^EnvironmentFile=/d'); fi
+    if ! sed "${environment_rules[@]}" -e "s|@APP_DIR@|$APP_DIR|g" \
       -e "s|@APP_USER@|$APP_USER|g" \
-      -e "s|@RW_PATHS@|$DATA_DIR $(dirname "$LOG_FILE")|g" \
+      -e "s|@RW_PATHS@|$RW_PATHS|g" \
       "$src/factura.service" >"$tmp" || ! chmod 644 "$tmp"; then
       deployment_failed "не удалось подготовить юнит $UNIT_FILE"
     fi
@@ -481,19 +484,34 @@ backup_database() { # backup_database dest_dir
     chown root:root "$dest/db.sqlite" 2>/dev/null || true
     chmod 600 "$dest/db.sqlite"
   else
-    local url="$DATABASE_URL"
-    [[ "$url" =~ ^mysql://([^:]+):([^@]*)@([^:/]+)(:([0-9]+))?/(.+)$ ]] || {
-      echo "Не удалось разобрать DATABASE_URL"; return 1; }
-    local user="${BASH_REMATCH[1]}" pass="${BASH_REMATCH[2]}" host="${BASH_REMATCH[3]}"
-    local port="${BASH_REMATCH[5]:-3306}" db="${BASH_REMATCH[6]}"
-    local cnf
+    local cnf db rc=0
     cnf="$(mktemp)"
     chmod 600 "$cnf"
-    printf '[client]\nuser=%s\npassword=%s\nhost=%s\nport=%s\n' "$user" "$pass" "$host" "$port" >"$cnf"
+    db="$(printf '%s' "$DATABASE_URL" | node -e '
+      const { readFileSync, writeFileSync } = require("node:fs");
+      try {
+        const url = new URL(readFileSync(0, "utf8"));
+        const database = decodeURIComponent(url.pathname.slice(1));
+        if (url.protocol !== "mysql:" || !database || database.startsWith("-")) throw new Error();
+        const options = {
+          user: decodeURIComponent(url.username),
+          password: decodeURIComponent(url.password),
+          host: url.hostname.replace(/^\[|\]$/g, ""),
+          port: url.port || "3306",
+          protocol: "TCP",
+        };
+        const lines = Object.entries(options).map(([key, value]) => key + "=" + JSON.stringify(value));
+        writeFileSync(process.argv[1], "[client]\n" + lines.join("\n") + "\n");
+        process.stdout.write(database);
+      } catch { process.exitCode = 1; }
+    ' "$cnf")" || {
+      rm -f "$cnf"
+      echo "Не удалось разобрать DATABASE_URL"
+      return 1
+    }
     # --defaults-extra-file: пароль БД не попадает в аргументы процесса.
-    mysqldump --defaults-extra-file="$cnf" --single-transaction \
-      --default-character-set=utf8mb4 "$db" >"$dest/db.sql"
-    local rc=$?
+    mysqldump --defaults-extra-file="$cnf" --single-transaction --skip-lock-tables --no-tablespaces \
+      --default-character-set=utf8mb4 "$db" >"$dest/db.sql" || rc=$?
     rm -f "$cnf"
     [ $rc -eq 0 ] || return 1
   fi

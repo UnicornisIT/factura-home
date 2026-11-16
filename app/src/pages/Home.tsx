@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type MouseEvent,
@@ -48,6 +49,7 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
 
   const [activeSlug, setActiveSlug] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [receipt, setReceipt] = useState("");
@@ -100,6 +102,7 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
     [previewBlocks, blocks]
   );
   const design = content?.design;
+  const footerText = content?.footerText?.trim();
 
   // Якоря навигации: legacy-имена разделов → id соответствующих блоков.
   const anchors = useMemo(() => {
@@ -187,6 +190,19 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [menuOpen]);
 
+  useEffect(() => {
+    const header = headerRef.current;
+    const landing = header?.parentElement;
+    if (!header || !landing) return;
+    const updateHeaderHeight = () => {
+      landing.style.setProperty("--header-height", `${header.offsetHeight}px`);
+    };
+    updateHeaderHeight();
+    const observer = new ResizeObserver(updateHeaderHeight);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
   const cssVars = (design ? designCssVars(design) : {}) as CSSProperties;
   const rootClass = [
     "landing",
@@ -225,6 +241,7 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
     >
       {/* Шапка */}
       <header
+        ref={headerRef}
         className={`header${design && !design.headerSticky ? " static" : ""}`}
       >
         <a className="logo" href="#top">
@@ -242,7 +259,10 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
             </span>
           )}
         </a>
-        <nav className={`nav ${menuOpen ? "open" : ""}`}>
+        <nav
+          id="storefront-navigation"
+          className={`nav ${menuOpen ? "open" : ""}`}
+        >
           {navLinks.map(link => (
             <a
               key={`${link.href}-${link.label}`}
@@ -268,6 +288,7 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
           <button
             className={`burger ${menuOpen ? "open" : ""}`}
             aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"}
+            aria-controls="storefront-navigation"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(open => !open)}
           >
@@ -329,9 +350,7 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
               </a>
             )}
           </div>
-          {content?.footerText && (
-            <div className="footer-text">{content.footerText}</div>
-          )}
+          {footerText && <p className="footer-text">{footerText}</p>}
         </div>
       </footer>
 
@@ -392,7 +411,11 @@ export default function Home({ previewBlocks }: { previewBlocks?: Block[] }) {
           <p className="cart-note">
             Стоимость доставки и наличие подтвердим после получения заказа.
           </p>
-          {receipt && <p role="status">{receipt}</p>}
+          {receipt && (
+            <p className="cart-receipt" role="status">
+              {receipt}
+            </p>
+          )}
           {preview && cart.length > 0 && (
             <p role="status">Оформление заказа отключено в предпросмотре.</p>
           )}

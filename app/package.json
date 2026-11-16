@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx db/migrate.ts",
+    "db:bootstrap-admins": "tsx db/bootstrap-admins.ts",
     "seed": "tsx db/seed.ts",
     "seed:dev": "npm run seed",
     "format:check": "prettier --check .",

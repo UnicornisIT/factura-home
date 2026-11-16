@@ -53,6 +53,61 @@ export async function ensureOwner() {
   await securityTransaction(bootstrapOwner);
 }
 
+async function insertAdmin(
+  sql: Sql,
+  id: number,
+  role: AllowlistRole,
+  actor: number
+) {
+  await sql(
+    "INSERT INTO adminAllowlist (telegramId, role, isActive, addedByTelegramId) VALUES (?, ?, 1, ?)",
+    [id, role, actor]
+  );
+}
+
+export async function addInitialAdmins(ids: number[]) {
+  const owner = env.superAdminTelegramId;
+  if (!owner) throw new Error("SUPER_ADMIN_TELEGRAM_ID is required");
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0 || id === owner))
+    throw new Error("Expected positive Telegram IDs distinct from the owner");
+  if (new Set(ids).size !== ids.length)
+    throw new Error("Duplicate Telegram IDs");
+
+  return securityTransaction(async sql => {
+    // The owner's row serializes writes with access changes from the panel.
+    const lock = env.dbDialect === "mysql" ? " FOR UPDATE" : "";
+    const [configuredOwner] = await sql(
+      `SELECT id FROM adminAllowlist WHERE telegramId = ? AND role = 'super_admin' AND isActive = 1${lock}`,
+      [owner]
+    );
+    if (!configuredOwner)
+      throw new Error("Run migrations to initialize the owner");
+
+    let added = 0;
+    const preserved: number[] = [];
+    for (const id of ids) {
+      const [existing] = await sql(
+        "SELECT id FROM adminAllowlist WHERE telegramId = ?",
+        [id]
+      );
+      // Preserve roles and revocations if setup is retried against the same DB.
+      if (existing) {
+        preserved.push(id);
+        continue;
+      }
+      await insertAdmin(sql, id, "admin", owner);
+      await audit(sql, owner, "access.add", id, null, "admin");
+      const [created] = await sql(
+        "SELECT id FROM adminAllowlist WHERE telegramId = ? AND role = 'admin' AND isActive = 1 AND addedByTelegramId = ?",
+        [id, owner]
+      );
+      if (!created) throw new Error("Could not verify administrator access");
+      added++;
+    }
+    return { added, preserved };
+  });
+}
+
 export async function changeAccess(
   actor: number,
   id: number,
@@ -112,10 +167,7 @@ export async function changeAccess(
     const before = (target?.role as string) ?? null;
 
     if (operation === "add" && !target) {
-      await sql(
-        "INSERT INTO adminAllowlist (telegramId, role, isActive, addedByTelegramId) VALUES (?, ?, 1, ?)",
-        [id, role, actor]
-      );
+      await insertAdmin(sql, id, role, actor);
     } else {
       await sql(
         "UPDATE adminAllowlist SET role = ?, isActive = ? WHERE telegramId = ?",

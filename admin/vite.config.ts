@@ -32,8 +32,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      // Только для type-only импорта AppRouter из ../app/api/router.ts.
-      // Vite type-only импорты стирает, поэтому runtime-путей здесь нет.
+      // Общие компоненты витрины и тип AppRouter.
       "@server": path.resolve(__dirname, "../app"),
       // Runtime-импорт общей библиотеки блоков конструктора (типизация,
       // метаданные, значения по умолчанию) из ../app/contracts.

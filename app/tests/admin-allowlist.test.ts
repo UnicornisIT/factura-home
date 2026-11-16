@@ -8,8 +8,13 @@ import {
 } from "../api/queries/admin-allowlist";
 import { signSessionToken, verifySessionToken } from "../api/session";
 import { securitySql } from "../api/queries/security-store";
+import { checkInitialAdmins } from "./bootstrap-admins-scenarios";
 beforeEach(() => resetDb());
 describe("access lifecycle", () => {
+  it(
+    "provisions initial admins once without changing existing rows",
+    checkInitialAdmins
+  );
   it("bootstraps only the configured owner even with a nonempty allowlist, idempotently", async () => {
     await addAllowlistEntry({ telegramId: 900 });
     await Promise.all([ensureOwner(), ensureOwner(), ensureOwner()]);

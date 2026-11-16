@@ -1,6 +1,7 @@
 import { securityTransaction, audit } from "./queries/security-store";
 import { telegramAuthRouter } from "./telegram-auth-router";
 import { adminAllowlistRouter } from "./admin-allowlist-router";
+import { adminAppearanceRouter } from "./admin-appearance-router";
 import { collectionsRouter } from "./collections-router";
 import { productsRouter } from "./products-router";
 import { ordersRouter } from "./orders-router";
@@ -52,6 +53,7 @@ export const appRouter = createRouter({
 
   auth: authRouter,
   allowlist: adminAllowlistRouter,
+  adminAppearance: adminAppearanceRouter,
 
   collections: collectionsRouter,
   products: productsRouter,

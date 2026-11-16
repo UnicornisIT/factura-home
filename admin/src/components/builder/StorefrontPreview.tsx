@@ -8,7 +8,7 @@ const SHOP_ORIGIN = import.meta.env.DEV
   : window.location.origin;
 const devices = [
   { key: "desktop", label: "Компьютер", icon: Monitor, width: 1440 },
-  { key: "tablet", label: "Планшет", icon: Tablet, width: 820 },
+  { key: "tablet", label: "Планшет", icon: Tablet, width: 768 },
   { key: "mobile", label: "Смартфон", icon: Smartphone, width: 390 },
 ] as const;
 
@@ -26,25 +26,7 @@ export function StorefrontPreview({
   const [device, setDevice] = useState<(typeof devices)[number]>(devices[0]);
   const [published, setPublished] = useState(false);
   const [ready, setReady] = useState(0);
-  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
-  const viewport = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
-  const scale = viewportSize.width
-    ? Math.min(1, viewportSize.width / device.width)
-    : 1;
-
-  useEffect(() => {
-    const container = viewport.current;
-    if (!container) return;
-    const observer = new ResizeObserver(([entry]) =>
-      setViewportSize({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      }),
-    );
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -85,7 +67,7 @@ export function StorefrontPreview({
           : "min-w-0 rounded-lg border bg-white p-3"
       }
     >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div
           className="flex flex-wrap gap-1"
           role="group"
@@ -133,8 +115,7 @@ export function StorefrontPreview({
         </div>
       </div>
       <div
-        ref={viewport}
-        className={`overflow-hidden rounded-md bg-slate-100 ${expanded ? "min-h-0 flex-1" : "h-[68vh]"}`}
+        className={`min-w-0 rounded-md bg-slate-100 ${expanded ? "min-h-0 flex-1" : "h-[68dvh]"}`}
       >
         <iframe
           ref={frame}
@@ -142,12 +123,8 @@ export function StorefrontPreview({
           src={`${SHOP_ORIGIN}/editor-preview${published ? "/published" : ""}`}
           sandbox="allow-scripts allow-same-origin"
           title="Предпросмотр витрины"
-          className="mx-auto block h-full border-x bg-white"
-          style={{
-            width: device.width,
-            height: viewportSize.height / scale || "100%",
-            zoom: scale,
-          }}
+          className="mx-auto block h-full w-full rounded-md bg-white"
+          style={{ maxWidth: device.width }}
         />
       </div>
     </section>

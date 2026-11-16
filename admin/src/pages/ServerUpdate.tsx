@@ -4,30 +4,15 @@ import { AdminLayout } from "@/components/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Check, Loader2, RefreshCw, ExternalLink } from "lucide-react";
+import { ReleaseNotes } from "@/components/ReleaseNotes";
+import { Loader2, RefreshCw, ExternalLink } from "lucide-react";
 import { installationStatus } from "./server-update-state";
-
-// Этапы должны совпадать со стадиями deployment/factura-update.sh.
-const STAGES = [
-  "проверка окружения",
-  "проверка доступа к GitHub",
-  "загрузка информации о релизе",
-  "создание резервных копий",
-  "получение исходного кода",
-  "установка зависимостей",
-  "сборка приложения и админ-панели",
-  "миграция базы данных",
-  "установка deployment-файлов",
-  "перезапуск сервиса",
-  "проверка работоспособности",
-  "завершено",
-] as const;
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime())
-    ? value
+    ? "—"
     : date.toLocaleString("ru-RU", {
         day: "numeric",
         month: "short",
@@ -41,39 +26,6 @@ function StateBadge({ state }: { state: "running" | "success" | "failed" }) {
   if (state === "running") return <Badge variant="warning">выполняется</Badge>;
   if (state === "success") return <Badge variant="success">успешно</Badge>;
   return <Badge variant="danger">ошибка</Badge>;
-}
-
-function StageProgress({ stage }: { stage: string | null }) {
-  const current = stage ? STAGES.indexOf(stage.toLowerCase() as never) : -1;
-  return (
-    <ol className="space-y-1">
-      {STAGES.map((name, index) => {
-        const done = current >= 0 && index < current;
-        const active = index === current || (current < 0 && index === 0);
-        return (
-          <li
-            key={name}
-            className={`flex items-center gap-2 text-xs ${
-              active
-                ? "font-medium text-slate-800"
-                : done
-                  ? "text-slate-500"
-                  : "text-slate-300"
-            }`}
-          >
-            {done ? (
-              <Check className="h-3 w-3 shrink-0 text-emerald-600" />
-            ) : active ? (
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[#5C2A2A]" />
-            ) : (
-              <span className="h-3 w-3 shrink-0 rounded-full border border-current" />
-            )}
-            <span className="capitalize">{name}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
 }
 
 export default function ServerUpdate() {
@@ -95,7 +47,6 @@ export default function ServerUpdate() {
       setAwaitingResult(true);
       void utils.system.updateStatus.invalidate();
     },
-    onError: (e) => alert(e.message),
   });
 
   const enabled = data?.enabled ?? false;
@@ -108,15 +59,10 @@ export default function ServerUpdate() {
     running,
     enabled,
     upToDate,
-    latestKnown: !!latest || !!data?.latestError,
+    latestKnown: !!latest,
   });
 
-  // Операция, запущенная из этой сессии панели (по времени клика).
   const op = data?.lastOperation ?? null;
-  const tracked =
-    op?.startedAt && Date.parse(op.startedAt) >= clickedAtRef.current - 5000
-      ? op
-      : null;
 
   useEffect(() => {
     if (!awaitingResult || !data || !op?.startedAt) return;
@@ -132,7 +78,7 @@ export default function ServerUpdate() {
     if (
       latest &&
       confirm(
-        `${upToDate ? "Повторно установить" : "Обновить сервер до"} ${latest.tag}? Будут установлены зависимости, собраны витрина, админка и API, применены миграции. Магазин будет временно недоступен.`,
+        `${upToDate ? "Повторно установить" : "Обновить до"} ${latest.tag}? Магазин будет временно недоступен.`,
       )
     ) {
       startUpdate.mutate();
@@ -140,65 +86,53 @@ export default function ServerUpdate() {
   };
 
   return (
-    <AdminLayout
-      title="Обновление сервера"
-      description="Проверка последнего релиза и обновление магазина по кнопке"
-      requireRole="super_admin"
-    >
+    <AdminLayout title="Обновление сервера" requireRole="super_admin">
       {isLoading && <p className="text-sm text-slate-500">Загрузка…</p>}
 
-      {!isLoading && !enabled && (
+      {data && !enabled && (
         <Card className="mb-6">
           <CardContent className="pt-6 text-sm text-slate-600">
-            Обновление из панели выключено. Включите{" "}
-            <code className="font-mono text-xs bg-slate-100 px-1 rounded">
-              SERVER_UPDATE_ENABLED=true
-            </code>{" "}
-            в{" "}
-            <code className="font-mono text-xs bg-slate-100 px-1 rounded">
-              app/.env
-            </code>{" "}
-            и установите скрипт обновления через{" "}
-            <code className="font-mono text-xs bg-slate-100 px-1 rounded">
-              deployment/setup.sh
-            </code>
-            .
+            Обновление из панели недоступно.
           </CardContent>
         </Card>
       )}
 
       {awaitingResult && isError && (
         <Card className="mb-6 border-amber-200 bg-amber-50">
-          <CardContent className="pt-6 text-sm text-amber-800">
-            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
-            Сервис перезапускается, API временно недоступен. Подключение
-            повторяется автоматически — не закрывайте страницу.
+          <CardContent role="status" className="pt-6 text-sm text-amber-800">
+            <Loader2 className="mr-2 inline h-4 w-4 motion-safe:animate-spin" />
+            Ждём ответа магазина после перезапуска…
           </CardContent>
         </Card>
       )}
 
-      {!awaitingResult && tracked && tracked.state !== "running" && (
+      {((isError && !data && !awaitingResult) || startUpdate.isError) && (
+        <p role="alert" className="mb-6 text-sm text-red-700">
+          {startUpdate.isError
+            ? "Не удалось запустить обновление. Попробуйте ещё раз."
+            : "Не удалось проверить состояние обновления."}
+        </p>
+      )}
+
+      {!awaitingResult && !running && op && op.state !== "running" && (
         <Card
           className={`mb-6 ${
-            tracked.state === "success"
+            op.state === "success"
               ? "border-emerald-200 bg-emerald-50"
               : "border-red-200 bg-red-50"
           }`}
         >
-          <CardContent className="pt-6 text-sm">
+          <CardContent role="status" className="pt-6 text-sm">
             <div className="flex items-center gap-2 font-medium">
-              <StateBadge state={tracked.state} />
-              {tracked.state === "success"
-                ? tracked.message === "already up to date"
-                  ? "Предыдущая проверка подтвердила только совпадение версии"
-                  : `Обновление до ${tracked.tag ?? "новой версии"} подтверждено сервером`
-                : "Обновление завершилось ошибкой"}
+              <StateBadge state={op.state} />
+              {op.state === "success"
+                ? op.message === "already up to date"
+                  ? "Обновление не требовалось"
+                  : op.tag
+                    ? `Обновление до ${op.tag} завершено`
+                    : "Обновление завершено"
+                : "Последнее обновление завершилось ошибкой"}
             </div>
-            {tracked.message && (
-              <p className="mt-1 text-xs text-slate-600 break-words">
-                {tracked.message}
-              </p>
-            )}
           </CardContent>
         </Card>
       )}
@@ -210,78 +144,40 @@ export default function ServerUpdate() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-500">Версия запущенной сборки</span>
+              <span className="text-slate-500">Текущая версия</span>
               <span className="font-mono font-medium">
                 {currentVersion ? `v${currentVersion}` : "не определена"}
               </span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-slate-500">Репозиторий</span>
-              <span className="font-mono text-xs">{data?.repository}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
               <span className="text-slate-500">Статус</span>
-              {status === "running" && <StateBadge state="running" />}
-              {status === "up-to-date" && (
-                <Badge variant="success">сборка последнего релиза</Badge>
+              {(running || awaitingResult) && <StateBadge state="running" />}
+              {!awaitingResult && status === "up-to-date" && (
+                <Badge variant="success">последняя версия</Badge>
               )}
-              {(status === "update-available" || status === "unknown") && (
-                <Badge variant="outline">готово к обновлению</Badge>
+              {!awaitingResult && status === "update-available" && (
+                <Badge variant="outline">доступно обновление</Badge>
               )}
-              {status === "disabled" && (
-                <Badge variant="outline">выключено</Badge>
+              {!awaitingResult && status === "unknown" && (
+                <Badge variant="outline">нет данных о релизе</Badge>
+              )}
+              {data && !awaitingResult && status === "disabled" && (
+                <Badge variant="outline">недоступно</Badge>
               )}
             </div>
-
-            {running && (
-              <div className="border-t pt-3">
-                <div className="text-slate-500 mb-2">Текущий этап</div>
-                <StageProgress stage={op?.stage ?? null} />
-              </div>
-            )}
-
-            {op && !running && (
-              <div className="border-t pt-3 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">
-                    Последняя операция (история)
-                  </span>
-                  <StateBadge state={op.state} />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">Версия</span>
-                  <span className="font-mono text-xs">{op.tag ?? "—"}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">Завершено</span>
-                  <span className="text-xs">{formatDate(op.finishedAt)}</span>
-                </div>
-                {op.message && (
-                  <p className="text-xs text-slate-500 break-words">
-                    {op.message}
-                  </p>
-                )}
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Последний релиз</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            {data?.latestError && (
-              <p className="text-xs text-red-700">{data.latestError}</p>
-            )}
-            {!latest && !data?.latestError && (
+            {data && !latest && (
               <p className="text-slate-500">
-                В репозитории нет релизов, либо он недоступен с текущим{" "}
-                <code className="font-mono text-xs bg-slate-100 px-1 rounded">
-                  GITHUB_TOKEN
-                </code>
-                . Для приватного репозитория нужен fine-grained PAT (Contents:
-                Read-only).
+                {data.latestError
+                  ? "Не удалось загрузить сведения о последнем релизе."
+                  : "Сведения о релизе недоступны."}
               </p>
             )}
             {latest && (
@@ -304,12 +200,10 @@ export default function ServerUpdate() {
                     </a>
                   </Button>
                 )}
-                {latest.notes && (
-                  <div className="border-t pt-3">
-                    <div className="text-slate-500 mb-1">Заметки</div>
-                    <pre className="text-xs whitespace-pre-wrap font-sans text-slate-700 max-h-48 overflow-y-auto">
-                      {latest.notes}
-                    </pre>
+                {latest.notes?.trim() && (
+                  <div className="release-summary border-t pt-3">
+                    <h2 className="mb-2 font-medium">Что нового</h2>
+                    <ReleaseNotes notes={latest.notes} />
                   </div>
                 )}
               </>
@@ -330,7 +224,7 @@ export default function ServerUpdate() {
           }
         >
           <RefreshCw
-            className={`h-4 w-4 mr-2 ${running || startUpdate.isPending ? "animate-spin" : ""}`}
+            className={`h-4 w-4 mr-2 ${running || startUpdate.isPending ? "motion-safe:animate-spin" : ""}`}
           />
           {running || awaitingResult || startUpdate.isPending
             ? "Обновление выполняется…"
@@ -338,16 +232,6 @@ export default function ServerUpdate() {
               ? `${upToDate ? "Повторно установить" : "Обновить до"} ${latest.tag}`
               : "Обновить"}
         </Button>
-        {upToDate && !awaitingResult && (
-          <span className="text-sm text-slate-500">
-            Повторная установка восстановит сборку и применит миграции
-          </span>
-        )}
-        {running && (
-          <span className="text-sm text-slate-500">
-            Статус обновляется автоматически каждые 3 секунды
-          </span>
-        )}
       </div>
     </AdminLayout>
   );
