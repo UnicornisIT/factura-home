@@ -62,7 +62,11 @@ export function fontStack(key: FontKey): string {
 
 export type DesignDensity = "compact" | "normal" | "airy";
 
+export const DEFAULT_FAVICON_URL = "/img/favicon-leaf.png";
+export const UPLOADED_FAVICON_RE = /^\/uploads\/[a-f0-9-]{36}\.webp$/;
+
 export type DesignSettings = {
+  faviconImage: string;
   colors: DesignColors;
   fonts: { heading: FontKey; body: FontKey };
   /** Базовое скругление карточек и кнопок, px (0–40). */
@@ -76,6 +80,7 @@ export type DesignSettings = {
 };
 
 export const DEFAULT_DESIGN: DesignSettings = {
+  faviconImage: "",
   colors: {
     background: "#FAF0E6",
     surface: "#F3E2CD",
@@ -148,6 +153,11 @@ export function normalizeDesign(value: unknown): DesignSettings {
     ? (String(raw.density) as DesignDensity)
     : base.density;
   return {
+    faviconImage:
+      typeof raw.faviconImage === "string" &&
+      UPLOADED_FAVICON_RE.test(raw.faviconImage)
+        ? raw.faviconImage
+        : base.faviconImage,
     colors,
     fonts: { heading, body },
     radius,

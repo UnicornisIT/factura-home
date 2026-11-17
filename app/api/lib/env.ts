@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import "dotenv/config";
+import { normalizeIp } from "./client-ip";
 const isProduction = process.env.NODE_ENV === "production";
 export const dbDialect =
   process.env.DB_DIALECT === "sqlite" || process.env.NODE_ENV === "test"
@@ -10,6 +11,9 @@ export const sqlitePath =
   (process.env.NODE_ENV === "test" ? ":memory:" : "./dev.db");
 const owner = Number(process.env.SUPER_ADMIN_TELEGRAM_ID || 0);
 const origin = process.env.PUBLIC_ORIGIN || "http://localhost:3000";
+const trustedProxyIp = normalizeIp(process.env.TRUSTED_PROXY_IP);
+if (process.env.TRUSTED_PROXY_IP && !trustedProxyIp)
+  throw new Error("TRUSTED_PROXY_IP must be a single IP address");
 if (
   process.env.DB_DIALECT &&
   !["sqlite", "mysql"].includes(process.env.DB_DIALECT)
@@ -88,6 +92,7 @@ export const env = {
   appSecret: process.env.APP_SECRET || "test-only-secret",
   databaseUrl: process.env.DATABASE_URL || "",
   publicOrigin: origin,
+  trustedProxyIp,
   devAdminOrigin: !isProduction ? process.env.DEV_ADMIN_ORIGIN : undefined,
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramBotName: process.env.TELEGRAM_BOT_NAME || "",

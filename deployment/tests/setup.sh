@@ -72,6 +72,7 @@ check_nginx() (
   grep -q 'client_max_body_size 6m' "$WORK/nginx.conf"
   grep -Fq "proxy_set_header Origin \$http_origin" "$WORK/nginx.conf"
   grep -Fq "proxy_set_header Cookie \$http_cookie" "$WORK/nginx.conf"
+  grep -Fq 'proxy_set_header X-Real-IP $remote_addr;' "$WORK/nginx.conf"
   grep -q 'proxy_pass http://127.0.0.1:3090' "$WORK/nginx.conf"
   grep -q 'ssl_certificate /etc/ssl/factura.pem' "$WORK/nginx.conf"
   TLS_MODE=certificate

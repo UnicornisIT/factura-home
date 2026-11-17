@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { TRPCError } from "@trpc/server";
 
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, publicQuery, limitedMutation } from "./middleware";
 
 import { verifyTelegramAuth } from "./lib/telegram-auth";
 
@@ -30,7 +30,7 @@ const schema = z
 export const telegramAuthRouter = createRouter({
   widgetConfig: publicQuery.query(() => ({ botName: env.telegramBotName })),
 
-  verify: publicQuery.input(schema).mutation(async ({ input, ctx }) => {
+  verify: limitedMutation.input(schema).mutation(async ({ input, ctx }) => {
     if (!verifyTelegramAuth(input).ok)
       throw new TRPCError({
         code: "UNAUTHORIZED",

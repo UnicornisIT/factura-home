@@ -17,6 +17,7 @@ import { listOrders } from "../api/queries/orders";
 import { ordersRouter } from "../api/orders-router";
 import { securitySql } from "../api/queries/security-store";
 import { env } from "../api/lib/env";
+import { consumeRateLimit } from "../api/lib/rate-limit";
 import { deliverNextOrderNotification } from "../api/lib/order-telegram";
 import { blocksRouter } from "../api/blocks-router";
 import { blockDefaults } from "@contracts/blocks";
@@ -209,6 +210,11 @@ async function smoke() {
   assert.ok((await securitySql("SELECT id FROM adminAuditLog")).length > 0);
   await checkHomePublication();
   await checkInitialAdmins();
+  const bucket = "mysql-rate-smoke:" + randomUUID();
+  const decisions = await Promise.all(
+    Array.from({ length: 12 }, () => consumeRateLimit(bucket, 10, 60_000))
+  );
+  assert.equal(decisions.filter(Boolean).length, 10);
 }
 smoke()
   .then(() => process.exit(0))

@@ -27,6 +27,10 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
+      "/img/favicon-leaf.png": {
+        target: "http://localhost:3000",
+        changeOrigin: true,
+      },
     },
   },
   resolve: {

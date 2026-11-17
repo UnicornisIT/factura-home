@@ -48,6 +48,7 @@ jobs:
           SUPER_ADMIN_TELEGRAM_ID: 100
           TELEGRAM_BOT_TOKEN: test-only-bot-token
         run: |
+          node --import tsx tests/mysql-migration-recovery.ts
           npm run db:migrate
           npm run db:migrate
           npm run test:mysql

@@ -2,7 +2,11 @@ import { eq } from "drizzle-orm";
 import { getDb } from "./connection";
 import { siteContent } from "@db/schema";
 import type { SiteContent } from "@db/schema";
-import { normalizeDesign, normalizeNavItems } from "@contracts/design";
+import {
+  normalizeDesign,
+  normalizeNavItems,
+  type DesignSettings,
+} from "@contracts/design";
 
 function safeParse(raw: string): unknown {
   try {
@@ -37,7 +41,7 @@ export type SiteContentUpdate = Partial<
   Omit<SiteContent, "id" | "updatedAt" | "navJson" | "designJson">
 > & {
   navItems?: ReturnType<typeof normalizeNavItems>;
-  design?: ReturnType<typeof normalizeDesign>;
+  design?: Omit<DesignSettings, "faviconImage"> & { faviconImage?: string };
 };
 
 export async function updateSiteContent(
@@ -48,7 +52,12 @@ export async function updateSiteContent(
   if (!current[0]) throw new Error("Site content not seeded");
   const update: Partial<Omit<SiteContent, "id" | "updatedAt">> = { ...rest };
   if (navItems !== undefined) update.navJson = JSON.stringify(navItems);
-  if (design !== undefined) update.designJson = JSON.stringify(design);
+  if (design !== undefined) {
+    const faviconImage =
+      design.faviconImage ??
+      normalizeDesign(safeParse(current[0].designJson)).faviconImage;
+    update.designJson = JSON.stringify({ ...design, faviconImage });
+  }
   await getDb()
     .update(siteContent)
     .set(update)

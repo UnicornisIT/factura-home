@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { FONT_KEYS, MAX_NAV_ITEMS } from "@contracts/design";
+import {
+  FONT_KEYS,
+  MAX_NAV_ITEMS,
+  UPLOADED_FAVICON_RE,
+} from "@contracts/design";
 
 const hexColor = z
   .string()
@@ -8,6 +12,9 @@ const hexColor = z
 const fontKey = z.enum(FONT_KEYS);
 
 export const designSettingsSchema = z.object({
+  faviconImage: z
+    .union([z.literal(""), z.string().max(2048).regex(UPLOADED_FAVICON_RE)])
+    .optional(),
   colors: z.object({
     background: hexColor,
     surface: hexColor,

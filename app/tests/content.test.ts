@@ -42,6 +42,7 @@ describe("content queries (SQLite)", () => {
     expect(c.navItems).toEqual([]);
     expect(c.design.colors.accent).toBe("#751B22");
     expect(c.design.fonts.heading).toBe("cormorant");
+    expect(c.design.faviconImage).toBe("");
     expect(c.showShopName).toBe(true);
     expect(c.vk).toBe("");
   });
@@ -87,5 +88,21 @@ describe("content queries (SQLite)", () => {
     const c = await getSiteContent();
     expect(c.navItems).toEqual([]);
     expect(c.design.colors.background).toBe("#FAF0E6");
+  });
+
+  it("keeps an uploaded favicon through older design updates and supports reset", async () => {
+    await seedSiteContent();
+    const initial = await getSiteContent();
+    const faviconImage = "/uploads/0b87b7f4-c058-4ad4-abdd-2d73bce64a70.webp";
+    const { faviconImage: defaultFavicon, ...olderDesign } = initial.design;
+
+    await updateSiteContent({ design: { ...olderDesign, faviconImage } });
+    await updateSiteContent({ design: { ...olderDesign, radius: 8 } });
+    expect((await getSiteContent()).design.faviconImage).toBe(faviconImage);
+
+    await updateSiteContent({
+      design: { ...olderDesign, radius: 8, faviconImage: defaultFavicon },
+    });
+    expect((await getSiteContent()).design.faviconImage).toBe("");
   });
 });

@@ -10,7 +10,7 @@ import {
   orderNameSchema,
   parseLegacyContact,
 } from "@contracts/order-contacts";
-import { createRouter, publicQuery, adminQuery } from "./middleware";
+import { createRouter, limitedMutation, adminQuery } from "./middleware";
 import {
   createOrder,
   findOrderByRequestKey,
@@ -21,7 +21,7 @@ import {
 } from "./queries/orders";
 
 export const ordersRouter = createRouter({
-  create: publicQuery
+  create: limitedMutation
     .input(
       z
         .object({
