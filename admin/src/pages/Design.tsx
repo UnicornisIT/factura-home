@@ -235,8 +235,12 @@ export default function Design() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-slate-500">
-            Значок во вкладке браузера. Загрузите квадратное изображение PNG,
-            JPEG или WebP и нажмите «Сохранить дизайн».
+            Значок для вкладок витрины и админ-панели. После загрузки нажмите
+            «Сохранить дизайн».
+          </p>
+          <p className="text-sm text-slate-500">
+            Квадратное изображение, рекомендуемый размер — 64 × 64 пикселя.
+            Поддерживаются PNG, JPEG и WebP до 5 МБ.
           </p>
           <img
             src={form.faviconImage || DEFAULT_FAVICON_URL}

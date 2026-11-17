@@ -1,8 +1,10 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Outlet, Routes, Route } from "react-router";
+import { DEFAULT_FAVICON_URL } from "@contracts/design";
 import { useAuth } from "@/hooks/useAuth";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/NotFound";
+import { trpc } from "@/providers/trpc";
 
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Products = lazy(() => import("@/pages/Products"));
@@ -32,6 +34,14 @@ function AdminRoutes() {
 }
 
 export default function App() {
+  const { data: content } = trpc.content.get.useQuery();
+  const favicon = content?.design.faviconImage || DEFAULT_FAVICON_URL;
+
+  useEffect(() => {
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    icon?.setAttribute("href", favicon);
+  }, [favicon]);
+
   return (
     <Suspense fallback={<PageLoading />}>
       <Routes>
