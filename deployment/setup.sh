@@ -799,7 +799,7 @@ write_env() {
       trusted_proxy="$(read_old TRUSTED_PROXY_IP)"
       if [ -z "$trusted_proxy" ] && [ -f "$NGINX_LINK" ] &&
         grep -qx '# Managed by Factura setup' "$NGINX_LINK" &&
-        grep -Fq 'proxy_set_header X-Real-IP $remote_addr;' "$NGINX_LINK"; then
+        grep -Fq "proxy_set_header X-Real-IP \$remote_addr;" "$NGINX_LINK"; then
         trusted_proxy=127.0.0.1
       fi
       ;;
