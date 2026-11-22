@@ -16,12 +16,18 @@ export type TrpcContext = {
   req: Request;
   resHeaders: Headers;
   user?: AuthUser;
+  clientIp?: string;
 };
 
 export async function createContext(
-  opts: FetchCreateContextFnOptions
+  opts: FetchCreateContextFnOptions,
+  clientIp?: string
 ): Promise<TrpcContext> {
-  const ctx: TrpcContext = { req: opts.req, resHeaders: opts.resHeaders };
+  const ctx: TrpcContext = {
+    req: opts.req,
+    resHeaders: opts.resHeaders,
+    clientIp,
+  };
 
   const token = sessionToken(opts.req);
 

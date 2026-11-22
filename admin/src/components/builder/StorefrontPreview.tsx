@@ -23,10 +23,25 @@ export function StorefrontPreview({
   expanded: boolean;
   onCollapse: () => void;
 }) {
-  const [device, setDevice] = useState<(typeof devices)[number]>(devices[0]);
+  const [device, setDevice] = useState<(typeof devices)[number]>(() =>
+    window.matchMedia?.("(max-width: 639px)").matches ? devices[2] : devices[0],
+  );
   const [published, setPublished] = useState(false);
   const [ready, setReady] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
+  const frameArea = useRef<HTMLDivElement>(null);
+  const [frameWidth, setFrameWidth] = useState(0);
+  const scale = frameWidth ? Math.min(1, frameWidth / device.width) : 1;
+
+  useEffect(() => {
+    const area = frameArea.current;
+    if (!area || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      setFrameWidth(entry.contentRect.width);
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -63,7 +78,7 @@ export function StorefrontPreview({
       aria-label="Предпросмотр главной страницы"
       className={
         expanded
-          ? "fixed inset-0 z-40 flex flex-col bg-white p-4"
+          ? "admin-preview-expanded fixed inset-0 z-40 flex flex-col overflow-y-auto bg-white"
           : "min-w-0 rounded-lg border bg-white p-3"
       }
     >
@@ -87,7 +102,7 @@ export function StorefrontPreview({
             </Button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex min-w-0 flex-wrap gap-1 [&>button]:h-auto [&>button]:min-h-8 [&>button]:max-w-full [&>button]:whitespace-normal">
           <Button
             size="sm"
             variant={published ? "outline" : "default"}
@@ -115,7 +130,8 @@ export function StorefrontPreview({
         </div>
       </div>
       <div
-        className={`min-w-0 rounded-md bg-slate-100 ${expanded ? "min-h-0 flex-1" : "h-[68dvh]"}`}
+        ref={frameArea}
+        className={`relative flex min-w-0 justify-center overflow-hidden rounded-md bg-slate-100 ${expanded ? "min-h-32 flex-1" : "h-[68dvh]"}`}
       >
         <iframe
           ref={frame}
@@ -123,8 +139,15 @@ export function StorefrontPreview({
           src={`${SHOP_ORIGIN}/editor-preview${published ? "/published" : ""}`}
           sandbox="allow-scripts allow-same-origin"
           title="Предпросмотр витрины"
-          className="mx-auto block h-full w-full rounded-md bg-white"
-          style={{ maxWidth: device.width }}
+          className="absolute top-0 block h-full w-full origin-top rounded-md bg-white"
+          style={{
+            maxWidth: device.width,
+            ...(scale < 1 && {
+              width: device.width,
+              height: `${100 / scale}%`,
+              transform: `scale(${scale})`,
+            }),
+          }}
         />
       </div>
     </section>

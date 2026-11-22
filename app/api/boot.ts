@@ -7,15 +7,20 @@ import { createContext } from "./context";
 import { env } from "./lib/env";
 import { log } from "./lib/logger";
 import { startOrderNotificationWorker } from "./lib/order-telegram";
+import { startUpdateNotificationWorkers } from "./lib/update-notifications";
 import { validMutationOrigin } from "./lib/csrf";
 import { consumeRateLimit } from "./lib/rate-limit";
+import { clientIp } from "./lib/client-ip";
 import { sanitizeImage } from "./lib/images";
 import { audit, securitySql } from "./queries/security-store";
 import { ensureOwner } from "./queries/admin-allowlist";
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
-const app = new Hono<{ Bindings: HttpBindings }>();
+const app = new Hono<{
+  Bindings: HttpBindings;
+  Variables: { clientIp: string };
+}>();
 app.use("*", async (c, next) => {
   await next();
   c.res.headers.set("X-Content-Type-Options", "nosniff");
@@ -43,20 +48,13 @@ app.use("/api/*", async (c, next) => {
     !validMutationOrigin(c.req.raw)
   )
     return c.json({ error: "Forbidden origin" }, 403);
-  if (c.req.path.startsWith("/api/trpc/") && c.req.path.split(",").length > 20)
-    return c.json({ error: "Too many batched operations" }, 400);
-  const ip = c.env?.incoming?.socket?.remoteAddress || "local";
-  const sensitive =
-    c.req.path.includes("orders.create") ||
-    c.req.path.includes("telegram.verify");
-  // Do not trust client-controlled forwarding headers for rate limits.
-  if (
-    !(await consumeRateLimit(
-      `${sensitive ? "sensitive" : "api"}:${ip}`,
-      sensitive ? 10 : 300,
-      60000
-    ))
-  )
+  const ip = clientIp(
+    c.env?.incoming?.socket?.remoteAddress,
+    c.req.header("x-real-ip") ?? null,
+    env.trustedProxyIp
+  );
+  c.set("clientIp", ip);
+  if (!(await consumeRateLimit(`api:${ip}`, 300, 60000)))
     return c.json({ error: "Too many requests" }, 429);
   await next();
 });
@@ -228,7 +226,8 @@ app.use("/api/trpc/*", c =>
     endpoint: "/api/trpc",
     req: c.req.raw,
     router: appRouter,
-    createContext,
+    maxBatchSize: 20,
+    createContext: options => createContext(options, c.get("clientIp")),
   })
 );
 app.all("/api/*", c => c.json({ error: "Not Found" }, 404));
@@ -240,6 +239,7 @@ export default app;
 if (env.isProduction && process.env.NODE_ENV !== "test") {
   await ensureOwner();
   startOrderNotificationWorker();
+  startUpdateNotificationWorkers();
   const { serve } = await import("@hono/node-server");
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);

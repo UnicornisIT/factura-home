@@ -209,7 +209,7 @@ export default function Products() {
         </div>
       )}
       <Card>
-        <Table>
+        <Table aria-label="Каталог товаров" className="min-w-[40rem]">
           <TableHeader>
             <TableRow>
               <TableHead className="w-12"></TableHead>
@@ -357,7 +357,7 @@ export default function Products() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label>Цена, ₽ *</Label>
                   <Input

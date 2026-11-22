@@ -4,8 +4,6 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import fs from "fs";
 import path from "path";
 
-type App = Hono<{ Bindings: HttpBindings }>;
-
 /**
  * Отдаёт статические файлы и SPA-фолбэк сразу для двух сборок:
  *  • dist/public  — storefront (shop)
@@ -15,7 +13,9 @@ type App = Hono<{ Bindings: HttpBindings }>;
  * и то, и API. В dev оба Vite-сервера запускаются отдельно
  * (`npm run dev` и `npm run dev:admin`).
  */
-export function serveStaticFiles(app: App) {
+export function serveStaticFiles<E extends { Bindings: HttpBindings }>(
+  app: Hono<E>
+) {
   const publicDir = path.resolve(process.cwd(), "dist/public");
   const adminDir = path.resolve(process.cwd(), "dist/admin");
 

@@ -160,7 +160,7 @@ export default function Content() {
                   {form.navItems.map((item, index) => (
                     <div
                       key={index}
-                      className="flex items-center gap-2 rounded-md border border-slate-200 p-2"
+                      className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-md border border-slate-200 p-2 sm:flex"
                     >
                       <input
                         type="checkbox"
@@ -189,7 +189,7 @@ export default function Content() {
                           )
                         }
                         placeholder="Подпись"
-                        className="flex-1"
+                        className="min-w-0 flex-1"
                       />
                       <select
                         value={
@@ -206,7 +206,7 @@ export default function Content() {
                             ),
                           )
                         }
-                        className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+                        className="col-span-2 h-9 min-w-0 rounded-md border border-input bg-transparent px-2 text-sm"
                         aria-label="Раздел"
                       >
                         <option value="" disabled>
@@ -218,40 +218,42 @@ export default function Content() {
                           </option>
                         ))}
                       </select>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => moveNav(index, -1)}
-                        disabled={index === 0}
-                        aria-label="Переместить выше"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => moveNav(index, 1)}
-                        disabled={index === form.navItems.length - 1}
-                        aria-label="Переместить ниже"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-red-600 hover:text-red-700"
-                        onClick={() =>
-                          setNav(form.navItems.filter((_, i) => i !== index))
-                        }
-                        aria-label="Удалить пункт"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="col-span-2 flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-10 sm:size-7"
+                          onClick={() => moveNav(index, -1)}
+                          disabled={index === 0}
+                          aria-label="Переместить выше"
+                        >
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-10 sm:size-7"
+                          onClick={() => moveNav(index, 1)}
+                          disabled={index === form.navItems.length - 1}
+                          aria-label="Переместить ниже"
+                        >
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="size-10 text-red-600 hover:text-red-700 sm:size-7"
+                          onClick={() =>
+                            setNav(form.navItems.filter((_, i) => i !== index))
+                          }
+                          aria-label="Удалить пункт"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -51,6 +51,16 @@ if [ "$(id -u)" -ne 0 ] && [ "${FACTURA_ALLOW_NONROOT:-0}" != "1" ]; then
   exit 1
 fi
 
+REQUEST_ID=""
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -ne 2 ] || [ "$1" != "--request-id" ] ||
+    ! [[ "$2" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]]; then
+    echo "Недопустимые параметры обновления" >&2
+    exit 2
+  fi
+  REQUEST_ID="$2"
+fi
+
 # Опциональный root-конфиг механизма обновления (нестандартная раскладка).
 # Исполняется только файл, принадлежащий root: непривилегированный пользователь
 # не может подсунуть свой FACTURA_APP_DIR ни здесь, ни через окружение (sudo
@@ -97,7 +107,9 @@ if ! flock -n 9; then
   exit 1
 fi
 
-OPERATION_ID="$(date +%Y%m%d%H%M%S)-$$"
+OPERATION_ID="${REQUEST_ID:-$(date +%Y%m%d%H%M%S)-$$}"
+SOURCE=manual
+[ -z "$REQUEST_ID" ] || SOURCE=panel
 STARTED_AT="$(date -Is)"
 SERVICE="${FACTURA_SERVICE:-factura}"
 # Статус должен читать процесс сервиса: владелец файла — User= из юнита,
@@ -106,6 +118,7 @@ SERVICE_USER="$(systemctl show -p User --value "$SERVICE" 2>/dev/null || true)"
 STATUS_USER="${SERVICE_USER:-$(stat -c %U "$(dirname "$STATUS_PATH")" 2>/dev/null || true)}"
 
 STAGE=""
+ROLLBACK=""
 DONE=0
 TARGET_TAG=""
 CURRENT_REF=""
@@ -120,23 +133,45 @@ UNIT_TMP_DIR=""
 SUDOERS_TMP=""
 
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r\t'; }
+json_value() {
+  if [ -n "$1" ]; then
+    printf '"%s"' "$(json_escape "$1")"
+  else
+    printf 'null'
+  fi
+}
 
 write_status() { # write_status state tag message finished
-  local tmp
+  local tmp journal_tmp now
+  now="$(date -Is)"
   tmp="$(mktemp "$(dirname "$STATUS_PATH")/.status.XXXXXX")"
-  printf '{"state":"%s","tag":%s,"stage":%s,"operationId":"%s","startedAt":"%s","finishedAt":%s,"message":%s}\n' \
+  printf '{"state":"%s","tag":%s,"stage":%s,"operationId":"%s","startedAt":"%s","finishedAt":%s,"message":%s,"fromVersion":%s,"targetVersion":%s,"updatedAt":"%s","rollback":%s,"source":"%s"}\n' \
     "$1" \
-    "$( [ -n "${2:-}" ] && printf '"%s"' "$(json_escape "$2")" || printf 'null' )" \
-    "$( [ -n "$STAGE" ] && printf '"%s"' "$(json_escape "$STAGE")" || printf 'null' )" \
+    "$(json_value "${2:-}")" \
+    "$(json_value "$STAGE")" \
     "$OPERATION_ID" \
     "$STARTED_AT" \
-    "$( [ "${4:-false}" = true ] && printf '"%s"' "$(date -Is)" || printf 'null' )" \
-    "$( [ -n "${3:-}" ] && printf '"%s"' "$(json_escape "$3")" || printf 'null' )" >"$tmp"
+    "$( [ "${4:-false}" = true ] && json_value "$now" || printf 'null' )" \
+    "$(json_value "${3:-}")" \
+    "$(json_value "$CURRENT_REF")" \
+    "$(json_value "$TARGET_TAG")" \
+    "$now" \
+    "$(json_value "$ROLLBACK")" \
+    "$SOURCE" >"$tmp"
   if [ -n "$STATUS_USER" ]; then
     chown "$STATUS_USER:$STATUS_USER" "$tmp" 2>/dev/null || true
   fi
   chmod 640 "$tmp" 2>/dev/null || chmod 644 "$tmp"
-  mv -f "$tmp" "$STATUS_PATH"
+  # A subsequent update can replace the status file before the app recovers.
+  # Keep each operation's own snapshot alongside the status for reconciliation.
+  if journal_tmp="$(mktemp "$(dirname "$STATUS_PATH")/.status.XXXXXX")"; then
+    if ! cp -p -- "$tmp" "$journal_tmp" ||
+      ! mv -fT -- "$journal_tmp" "$STATUS_PATH.operation-$OPERATION_ID.json"; then
+      rm -f -- "$journal_tmp"
+      echo "$(date -Is) [$OPERATION_ID] не удалось записать журнал операции"
+    fi
+  fi
+  mv -fT -- "$tmp" "$STATUS_PATH"
 }
 
 cleanup() { # временные файлы, включая содержащие секреты
@@ -153,6 +188,8 @@ finish_failed() { # finish_failed message [rollback:true]
   local message="$1" deployment_restored=true
   echo "$(date -Is) [$OPERATION_ID] ОШИБКА: $message"
   if [ "${2:-false}" = true ] && [ -n "$CURRENT_REF" ] && [ -n "$APP_USER" ]; then
+    ROLLBACK=in_progress
+    write_status running "${TARGET_TAG:-$CURRENT_REF}" "" false
     echo "$(date -Is) [$OPERATION_ID] откат кода на $CURRENT_REF"
     restore_deployment_files || deployment_restored=false
     if git_run checkout -f "$CURRENT_REF" &&
@@ -162,19 +199,22 @@ finish_failed() { # finish_failed message [rollback:true]
       # Откат подтверждается healthcheck: «восстановлено» без проверки сервиса
       # недостоверно. БД не откатывается — миграции могут быть необратимы.
       if systemctl restart "$SERVICE" && healthcheck; then
+        ROLLBACK=restored
         echo "$(date -Is) [$OPERATION_ID] откат завершён, сервис работоспособен (БД не откатывается)"
         message="$message; код откачен на $CURRENT_REF, сервис работоспособен, БД не откатывалась"
       else
+        ROLLBACK=failed
         echo "$(date -Is) [$OPERATION_ID] ОТКАТ НЕПОЛНЫЙ: код возвращён, но сервис не поднялся — требуется ручное вмешательство"
         message="$message; код откачен на $CURRENT_REF, но сервис не поднялся (healthcheck) — требуется ручное вмешательство; БД не откатывалась"
       fi
     else
+      ROLLBACK=failed
       echo "$(date -Is) [$OPERATION_ID] ОТКАТ НЕ УДАЛСЯ — требуется ручное вмешательство"
       message="$message; rollback failed"
     fi
   fi
-  DONE=1
   write_status failed "${TARGET_TAG:-$CURRENT_REF}" "$message" true
+  DONE=1
   exit 1
 }
 
@@ -303,7 +343,7 @@ if [ "${FACTURA_UPDATE_DETACHED:-0}" != "1" ] &&
     --setenv=FACTURA_APP_DIR="$APP_DIR" \
     --setenv=FACTURA_SERVICE="$SERVICE" \
     ${EXTRA_SETENV[@]+"${EXTRA_SETENV[@]}"} \
-    "$UPDATE_SELF"; then
+    "$UPDATE_SELF" "$@"; then
     DONE=1
     exit 0
   fi
@@ -538,6 +578,11 @@ healthcheck() {
   return 1
 }
 
+if [ -f "$STATUS_PATH.operation-$OPERATION_ID.json" ]; then
+  DONE=1
+  echo "$(date -Is) [$OPERATION_ID] идентификатор операции уже использован"
+  exit 1
+fi
 set_stage "проверка окружения"
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] ||
   finish_failed "SERVER_UPDATE_REPOSITORY имеет недопустимый формат: $REPOSITORY" false
@@ -556,18 +601,14 @@ REMOTE_URL="$(git_run remote get-url origin)" ||
   finish_failed "git remote origin не настроен в $APP_DIR" false
 case "$REMOTE_URL" in
   *"$REPOSITORY" | *"$REPOSITORY.git") ;;
-  *) finish_failed "origin ($REMOTE_URL) не соответствует SERVER_UPDATE_REPOSITORY ($REPOSITORY): источник обновления недостоверен" false ;;
+  *) finish_failed "origin не соответствует SERVER_UPDATE_REPOSITORY ($REPOSITORY): источник обновления недостоверен" false ;;
 esac
-git_sanitize() { # хвост stderr git без строк, похожих на секреты
-  printf '%s' "$1" | grep -viE 'token|password|authorization' | tail -n 3 | tr '\n' ' '
-}
-if ! LSREMOTE_OUT="$(git_run ls-remote --exit origin HEAD 2>&1)"; then
-  LSREMOTE_TAIL="$(git_sanitize "$LSREMOTE_OUT")"
+if ! git_run ls-remote --exit origin HEAD >/dev/null 2>&1; then
   case "$REMOTE_URL" in
     git@* | ssh://*)
-      finish_failed "Нет доступа к GitHub по SSH ($REMOTE_URL): проверьте deploy key и core.sshCommand в конфигурации репозитория для пользователя $APP_USER${LSREMOTE_TAIL:+; }${LSREMOTE_TAIL}" false ;;
+      finish_failed "Нет доступа к GitHub по SSH: проверьте deploy key и core.sshCommand для пользователя $APP_USER" false ;;
     *)
-      finish_failed "Нет доступа к GitHub по HTTPS: проверьте GITHUB_TOKEN в $ENV_FILE${LSREMOTE_TAIL:+; }${LSREMOTE_TAIL}" false ;;
+      finish_failed "Нет доступа к GitHub по HTTPS: проверьте GITHUB_TOKEN в $ENV_FILE" false ;;
   esac
 fi
 
@@ -581,7 +622,7 @@ if [ -n "$TOKEN" ]; then
   printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" >"$API_CFG"
   CURL_AUTH=(--config "$API_CFG")
 fi
-API_CODE="$(curl -sS -o "$API_BODY" -w '%{http_code}' "${CURL_AUTH[@]}" \
+API_CODE="$(curl -sS --max-time 30 -o "$API_BODY" -w '%{http_code}' "${CURL_AUTH[@]}" \
   -H "Accept: application/vnd.github+json" \
   -H "User-Agent: factura-updater" \
   "https://api.github.com/repos/$REPOSITORY/releases/latest" 2>/dev/null)" || API_CODE="000"
@@ -653,9 +694,8 @@ fi
 echo "$(date -Is) [$OPERATION_ID] резервная копия: $DEST"
 
 set_stage "получение исходного кода"
-if ! FETCH_OUT="$(git_run fetch --tags --force origin 2>&1)"; then
-  FETCH_TAIL="$(git_sanitize "$FETCH_OUT")"
-  finish_failed "git fetch не удался${FETCH_TAIL:+: $FETCH_TAIL}" false
+if ! git_run fetch --tags --force origin >/dev/null 2>&1; then
+  finish_failed "git fetch не удался" false
 fi
 git_run checkout "$TARGET_TAG" || finish_failed "git checkout $TARGET_TAG не удался" false
 ACTUAL="$(git_run rev-parse HEAD)"
@@ -691,5 +731,5 @@ healthcheck "$EXPECTED_VERSION" || finish_failed "healthcheck не прошёл 
 
 set_stage "завершено"
 echo "$(date -Is) [$OPERATION_ID] обновлено $CURRENT_REF -> $TARGET_TAG"
-DONE=1
 write_status success "$TARGET_TAG" "updated from $CURRENT_REF" true
+DONE=1

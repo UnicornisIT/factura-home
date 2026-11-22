@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { audit, securitySql } from "./queries/security-store";
 import { env } from "./lib/env";
+import { consumeRateLimit } from "./lib/rate-limit";
 import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
@@ -23,6 +24,17 @@ const t = initTRPC.context<TrpcContext>().create({
 
 export const createRouter = t.router;
 export const publicQuery = t.procedure;
+export const limitedMutation = publicQuery.use(async ({ ctx, next, path }) => {
+  if (
+    ctx.clientIp !== undefined &&
+    !(await consumeRateLimit(`mutation:${path}:${ctx.clientIp}`, 10, 60_000))
+  )
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Слишком много запросов. Попробуйте позже",
+    });
+  return next();
+});
 
 const requireAuth = t.middleware(async opts => {
   const { ctx, next } = opts;

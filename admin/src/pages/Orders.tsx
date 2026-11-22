@@ -166,12 +166,12 @@ export default function Orders() {
       title="Заказы"
       description={`${orders?.length ?? 0} всего`}
       actions={
-        <div className="w-44">
+        <div className="w-full sm:w-44">
           <Select
             value={filter}
             onValueChange={(v) => setFilter(v as StatusFilter)}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label="Статус заказа">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -210,38 +210,38 @@ export default function Orders() {
           return (
             <Card key={o.id}>
               <CardContent className="p-4">
-                {/* Шапка заказа */}
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   aria-expanded={isOpen}
-                  className="w-full flex items-center justify-between gap-4 text-left"
+                  className="h-auto w-full flex-wrap justify-between gap-x-4 gap-y-2 whitespace-normal p-2 text-left sm:flex-nowrap"
                   onClick={() => setExpanded(isOpen ? null : o.id)}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3 flex-wrap">
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="font-semibold text-slate-900">
                         #{o.id} · {o.name}
                       </span>
                       <Badge variant={st.variant}>{st.label}</Badge>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-0.5">
+                    </span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
                       {new Date(o.createdAt).toLocaleString("ru-RU", {
                         day: "numeric",
                         month: "long",
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-semibold">
+                    </span>
+                  </span>
+                  <span className="max-w-full text-right">
+                    <span className="block font-semibold">
                       {o.total.toLocaleString("ru-RU")} ₽
-                    </div>
-                    <div className="text-xs text-slate-500">
+                    </span>
+                    <span className="block text-xs text-slate-500">
                       {items.length} позиций
-                    </div>
-                  </div>
-                </button>
+                    </span>
+                  </span>
+                </Button>
 
                 {/* Развернутый контент */}
                 {isOpen && (
@@ -250,13 +250,13 @@ export default function Orders() {
                       {items.map((it, i) => (
                         <div
                           key={i}
-                          className="flex justify-between py-1 border-b border-dashed border-slate-100 last:border-0"
+                          className="flex justify-between gap-2 border-b border-dashed border-slate-100 py-1 last:border-0"
                         >
                           <span>
                             {it.name}
                             {it.qty > 1 ? ` × ${it.qty}` : ""}
                           </span>
-                          <span className="text-slate-700">
+                          <span className="shrink-0 text-slate-700">
                             {(it.price * it.qty).toLocaleString("ru-RU")} ₽
                           </span>
                         </div>

@@ -22,6 +22,8 @@ npm run dev:all
 
 ## Telegram и права
 
+Подписка в действующем боте и история установок описаны в [руководстве по уведомлениям об обновлениях](docs/server-update-notifications.md).
+
 Используется существующий legacy Login Widget с HMAC-SHA256, а не OIDC или Mini Apps initData. Настройте домен бота через BotFather для [legacy widget](https://core.telegram.org/widgets/login-legacy). Бот должен поддерживать этот режим; настройка нового OIDC-клиента сама по себе его не включает. Если Telegram перестанет поддерживать legacy widget для вашего бота, потребуется отдельная миграция протокола.
 
 - `TELEGRAM_BOT_TOKEN` — токен бота, только на сервере.

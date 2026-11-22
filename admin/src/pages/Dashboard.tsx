@@ -184,6 +184,7 @@ export default function Dashboard() {
                   />
                   <XAxis
                     dataKey="date"
+                    minTickGap={8}
                     tick={{ fontSize: 11, fill: "#64748b" }}
                     axisLine={false}
                     tickLine={false}
@@ -233,7 +234,7 @@ export default function Dashboard() {
                     className="px-5 py-3 flex items-center justify-between gap-3"
                   >
                     <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">
+                      <div className="text-sm font-medium lg:truncate">
                         {p.name}
                       </div>
                       <div className="text-xs text-slate-500">
@@ -253,7 +254,7 @@ export default function Dashboard() {
 
       {/* Последние заказы */}
       <Card className="mt-4">
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex-row flex-wrap items-center justify-between">
           <CardTitle>Последние заказы</CardTitle>
           <Button asChild variant="outline" size="sm">
             <Link to="/orders">
@@ -273,7 +274,7 @@ export default function Dashboard() {
                 return (
                   <li
                     key={o.id}
-                    className="px-5 py-3 flex items-center justify-between gap-4"
+                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-3 sm:px-5"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium">
@@ -288,7 +289,7 @@ export default function Dashboard() {
                         })}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex max-w-full flex-wrap items-center gap-x-3 gap-y-1">
                       <Badge variant={st.variant}>{st.label}</Badge>
                       <span className="text-sm font-semibold">
                         {o.total.toLocaleString("ru-RU")} ₽
@@ -324,9 +325,7 @@ function StatCard({
           <div className="text-xs text-slate-500 uppercase tracking-wide">
             {label}
           </div>
-          <div className="text-xl font-semibold text-slate-900 truncate">
-            {value}
-          </div>
+          <div className="text-xl font-semibold text-slate-900">{value}</div>
         </div>
       </CardContent>
     </Card>

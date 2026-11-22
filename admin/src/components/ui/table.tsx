@@ -1,14 +1,16 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-/**
- * Минимальный Table — без radix, чисто семантика. Достаточно для админки.
- */
 export const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+>(({ className, "aria-label": label, ...props }, ref) => (
+  <div
+    role="region"
+    aria-label={label}
+    tabIndex={0}
+    className="relative w-full min-w-0 overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400"
+  >
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}

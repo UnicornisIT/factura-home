@@ -2,6 +2,7 @@ import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "./button";
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -32,15 +33,22 @@ export const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-white p-6 shadow-lg rounded-xl max-h-[90vh] overflow-y-auto",
+        "admin-dialog fixed z-50 m-auto grid h-fit max-w-lg grid-cols-1 gap-4 overflow-y-auto overscroll-contain rounded-xl border bg-white p-4 shadow-lg [overflow-wrap:anywhere] sm:p-6",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Закрыть</span>
+      <DialogPrimitive.Close asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="absolute right-2 top-2 size-10 sm:right-4 sm:top-4 sm:size-9"
+          aria-label="Закрыть"
+        >
+          <X aria-hidden="true" />
+        </Button>
       </DialogPrimitive.Close>
     </DialogPrimitive.Content>
   </DialogPortal>
@@ -51,7 +59,9 @@ export function DialogHeader({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex flex-col gap-1", className)} {...props} />;
+  return (
+    <div className={cn("flex flex-col gap-1 pr-10", className)} {...props} />
+  );
 }
 
 export function DialogFooter({
@@ -60,7 +70,10 @@ export function DialogFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-row justify-end gap-2 mt-2", className)}
+      className={cn(
+        "mt-2 flex flex-wrap justify-end gap-2 [&>button]:max-w-full [&>button]:whitespace-normal",
+        className,
+      )}
       {...props}
     />
   );

@@ -80,10 +80,15 @@ try {
     assert.equal(response.headers.get("x-frame-options"), "SAMEORIGIN");
     const html = await response.text();
     assert.ok(html.includes('<div id="root"></div>'));
+    if (path === "/")
+      assert.ok(html.includes('rel="icon" href="/img/favicon-leaf.png"'));
     const asset = html.match(/src="([^"]+\.js)"/)?.[1];
     assert.ok(asset);
     assert.equal((await fetch(base + asset)).status, 200);
   }
+  const favicon = await fetch(base + "/img/favicon-leaf.png");
+  assert.equal(favicon.status, 200);
+  assert.match(favicon.headers.get("content-type") ?? "", /^image\/png\b/);
   const ping = await (await fetch(base + "/api/trpc/ping")).json();
   assert.equal(
     ping.result.data.json.version,

@@ -1,13 +1,13 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { env } from "../api/lib/env";
-import {
-  securitySql,
-  securityTransaction,
-  type Sql,
-} from "../api/queries/security-store";
+import { securityTransaction, type Sql } from "../api/queries/security-store";
 import { ensureOwner } from "../api/queries/admin-allowlist";
 import { ensureDefaultBlocks } from "../api/queries/blocks";
+import {
+  applyMysqlStatement,
+  withMysqlMigrationLock,
+} from "./mysql-migrations";
 async function migrate() {
   const directory = new URL("./migrations/", import.meta.url);
   const files = readdirSync(directory)
@@ -34,18 +34,28 @@ async function migrate() {
         .split(";")
         .map(value => value.trim())
         .filter(Boolean))
-        await execute(statement);
+        if (env.dbDialect === "mysql")
+          await applyMysqlStatement(execute, statement);
+        else await execute(statement);
       await execute(
         "INSERT INTO schemaMigrations (name, checksum, appliedAt) VALUES (?, ?, ?)",
         [file, checksum, Date.now()]
       );
     }
   };
-  if (env.dbDialect === "sqlite") await securityTransaction(apply);
-  else await apply(securitySql);
-  await ensureOwner();
-  // Сначала формируется публикация, затем из неё создаётся черновик.
-  await ensureDefaultBlocks();
+  const bootstrap = async () => {
+    await ensureOwner();
+    await ensureDefaultBlocks();
+  };
+  if (env.dbDialect === "sqlite") {
+    await securityTransaction(apply);
+    await bootstrap();
+  } else {
+    await withMysqlMigrationLock(env.databaseUrl, async execute => {
+      await apply(execute);
+      await bootstrap();
+    });
+  }
 }
 migrate()
   .then(() => process.exit(0))

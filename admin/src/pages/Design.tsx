@@ -1,12 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { AdminLayout } from "@/components/AdminLayout";
+import { ImageUpload } from "@/components/ImageUpload";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   DEFAULT_DESIGN,
+  DEFAULT_FAVICON_URL,
   FONT_OPTIONS,
   type DesignColors,
   type DesignSettings,
@@ -150,6 +152,7 @@ export default function Design() {
 
   const [form, setForm] = useState<DesignSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [faviconUploading, setFaviconUploading] = useState(false);
 
   useEffect(() => {
     if (content && !form) setForm(structuredClone(content.design));
@@ -189,16 +192,21 @@ export default function Design() {
       title="Дизайн сайта"
       description="Цвета, шрифты и оформление витрины. Изменения применяются сразу после сохранения."
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={() => setForm(structuredClone(DEFAULT_DESIGN))}
+            onClick={() =>
+              setForm({
+                ...structuredClone(DEFAULT_DESIGN),
+                faviconImage: form.faviconImage,
+              })
+            }
           >
             Сбросить к палитре по умолчанию
           </Button>
           <Button
             onClick={() => updateContent.mutate({ design: form })}
-            disabled={!hexValid || updateContent.isPending}
+            disabled={!hexValid || faviconUploading || updateContent.isPending}
           >
             {updateContent.isPending ? "Сохранение…" : "Сохранить дизайн"}
           </Button>
@@ -221,8 +229,45 @@ export default function Design() {
         </div>
       )}
 
+      <Card className="mb-4">
+        <CardHeader>
+          <CardTitle>Фавикон сайта</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Значок для вкладок витрины и админ-панели. После загрузки нажмите
+            «Сохранить дизайн».
+          </p>
+          <p className="text-sm text-slate-500">
+            Квадратное изображение, рекомендуемый размер — 64 × 64 пикселя.
+            Поддерживаются PNG, JPEG и WebP до 5 МБ.
+          </p>
+          <img
+            src={form.faviconImage || DEFAULT_FAVICON_URL}
+            width={48}
+            height={48}
+            className="h-12 w-12 object-contain"
+            alt="Предпросмотр фавикона"
+          />
+          <ImageUpload
+            onBusyChange={setFaviconUploading}
+            onUpload={(faviconImage) =>
+              setForm((current) => current && { ...current, faviconImage })
+            }
+          />
+          {form.faviconImage && (
+            <Button
+              variant="outline"
+              disabled={faviconUploading || updateContent.isPending}
+              onClick={() => setForm({ ...form, faviconImage: "" })}
+            >
+              Вернуть стандартный фавикон
+            </Button>
+          )}
+        </CardContent>
+      </Card>
       <LoginBackgroundSetting />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Цветовая палитра</CardTitle>

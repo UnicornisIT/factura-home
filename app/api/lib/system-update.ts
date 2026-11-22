@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
-import { access, constants, readFile } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { access, constants, readFile, readdir, unlink } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { TRPCError } from "@trpc/server";
 import { env } from "./env";
 import { log } from "./logger";
+import type { UpdateRollback } from "@contracts/update-notifications";
+import { publicReleaseUrl } from "./release-markdown";
 
 export type LatestRelease = {
   tag: string;
@@ -21,6 +23,11 @@ export type UpdateOperationStatus = {
   startedAt: string | null;
   finishedAt: string | null;
   message: string | null;
+  fromVersion?: string | null;
+  targetVersion?: string | null;
+  updatedAt?: string | null;
+  rollback?: UpdateRollback | null;
+  source?: "panel" | "manual";
 };
 
 const RELEASE_CACHE_TTL_MS = 60_000;
@@ -31,7 +38,12 @@ const RUNNING_TIMEOUT_MS = 30 * 60_000;
 // и выходит с кодом 0, либо обновление продолжается на месте.
 const LAUNCH_CONFIRM_MS = 15_000;
 const STDERR_LIMIT = 4_096;
-let releaseCache: { at: number; value: LatestRelease | null } | null = null;
+let releaseCache: {
+  key: string;
+  at: number;
+  value: LatestRelease | null;
+} | null = null;
+export const updateOperationIdPattern = /^[A-Za-z0-9-]{1,64}$/;
 
 export function __resetReleaseCacheForTests() {
   releaseCache = null;
@@ -50,13 +62,18 @@ export async function fetchLatestRelease(
   repository = env.serverUpdateRepository,
   token = env.githubToken
 ): Promise<LatestRelease | null> {
-  if (releaseCache && Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS)
+  const key = repository + ":" + token;
+  if (
+    releaseCache?.key === key &&
+    Date.now() - releaseCache.at < RELEASE_CACHE_TTL_MS
+  )
     return releaseCache.value;
   let response: Response;
   try {
     response = await fetch(
       `https://api.github.com/repos/${repository}/releases/latest`,
       {
+        signal: AbortSignal.timeout(15_000),
         headers: {
           Accept: "application/vnd.github+json",
           "User-Agent": "factura-shop",
@@ -73,7 +90,7 @@ export async function fetchLatestRelease(
   if (response.status === 404) {
     // GitHub отвечает 404 и когда релизов нет, и когда приватный репозиторий
     // недоступен с текущими учётными данными.
-    releaseCache = { at: Date.now(), value: null };
+    releaseCache = { key, at: Date.now(), value: null };
     return null;
   }
   if (response.status === 401)
@@ -98,8 +115,15 @@ export async function fetchLatestRelease(
     published_at?: unknown;
     body?: unknown;
     html_url?: unknown;
+    prerelease?: unknown;
+    draft?: unknown;
   };
-  if (typeof data.tag_name !== "string" || !data.tag_name)
+  if (data.prerelease === true || data.draft === true) return null;
+  if (
+    typeof data.tag_name !== "string" ||
+    !data.tag_name ||
+    data.tag_name.length > 128
+  )
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: "GitHub API вернул релиз без тега",
@@ -110,10 +134,36 @@ export async function fetchLatestRelease(
     publishedAt:
       typeof data.published_at === "string" ? data.published_at : null,
     notes: typeof data.body === "string" ? data.body : null,
-    url: typeof data.html_url === "string" ? data.html_url : null,
+    url: publicReleaseUrl(
+      typeof data.html_url === "string" ? data.html_url : null
+    ),
   };
-  releaseCache = { at: Date.now(), value };
+  releaseCache = { key, at: Date.now(), value };
   return value;
+}
+
+const versionPattern =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+export function compareStableRelease(tag: string, installed: string | null) {
+  const release = versionPattern.exec(tag);
+  const current = versionPattern.exec(installed ?? "");
+  if (
+    !release ||
+    release[4] ||
+    !current ||
+    current[4]
+      ?.slice(1)
+      .split(".")
+      .some(part => /^0\d+$/.test(part))
+  )
+    return null;
+  for (const index of [1, 2, 3]) {
+    const left = BigInt(release[index]);
+    const right = BigInt(current[index]);
+    if (left !== right) return left > right ? 1 : -1;
+  }
+  return current[4] ? 1 : 0;
 }
 
 export async function readUpdateStatus(
@@ -146,15 +196,73 @@ export async function readUpdateStatus(
     startedAt: text(record.startedAt),
     finishedAt: text(record.finishedAt),
     message: text(record.message),
+    ...("fromVersion" in record && { fromVersion: text(record.fromVersion) }),
+    ...("targetVersion" in record && {
+      targetVersion: text(record.targetVersion),
+    }),
+    ...("updatedAt" in record && { updatedAt: text(record.updatedAt) }),
+    ...("rollback" in record && {
+      rollback:
+        record.rollback === "restored" ||
+        record.rollback === "failed" ||
+        record.rollback === "in_progress"
+          ? record.rollback
+          : null,
+    }),
+    ...((record.source === "panel" || record.source === "manual") && {
+      source: record.source,
+    }),
   };
 }
 
-export function isUpdateRunning(status: UpdateOperationStatus | null): boolean {
-  if (status?.state !== "running") return false;
-  const startedAt = Date.parse(status.startedAt ?? "");
-  return (
-    !Number.isFinite(startedAt) || Date.now() - startedAt < RUNNING_TIMEOUT_MS
+function journalPrefix(statusPath: string) {
+  return `${basename(statusPath)}.operation-`;
+}
+
+export async function readUpdateJournal(
+  statusPath = env.serverUpdateStatusPath
+) {
+  const directory = dirname(statusPath);
+  const prefix = journalPrefix(statusPath);
+  const files = await readdir(directory, { withFileTypes: true }).catch(
+    error => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    }
   );
+  const snapshots = [];
+  for (const file of files) {
+    const id = file.name.slice(prefix.length, -5);
+    if (
+      !file.isFile() ||
+      !file.name.startsWith(prefix) ||
+      !file.name.endsWith(".json") ||
+      !updateOperationIdPattern.test(id)
+    )
+      continue;
+    const path = join(directory, file.name);
+    const status = await readUpdateStatus(path);
+    if (status?.operationId === id) snapshots.push({ status, path });
+  }
+  return snapshots;
+}
+
+export async function pruneUpdateSnapshot(path: string) {
+  await unlink(path).catch(error => {
+    if (error.code !== "ENOENT") throw error;
+  });
+}
+
+export function isUpdateRunning(
+  status: UpdateOperationStatus | null,
+  now = Date.now()
+): boolean {
+  if (status?.state !== "running") return false;
+  const updatedAt = Date.parse(status.updatedAt ?? "");
+  const startedAt = Date.parse(status.startedAt ?? "");
+  return Number.isFinite(updatedAt)
+    ? now - updatedAt < 4 * RUNNING_TIMEOUT_MS
+    : !Number.isFinite(startedAt) || now - startedAt < RUNNING_TIMEOUT_MS;
 }
 
 type StartUpdateOptions = {
@@ -163,6 +271,8 @@ type StartUpdateOptions = {
   statusPath?: string;
   launch?: (scriptPath: string) => void | Promise<void>;
   launchConfirmMs?: number;
+  operationId?: string;
+  beforeLaunch?: () => Promise<void>;
 };
 
 function sanitizeStderr(stderr: string): string {
@@ -187,16 +297,21 @@ function sanitizeStderr(stderr: string): string {
  */
 export function launchUpdateScript(
   script: string,
-  confirmMs = LAUNCH_CONFIRM_MS
+  confirmMs = LAUNCH_CONFIRM_MS,
+  operationId?: string
 ): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
     let settled = false;
     let stderr = "";
-    const child = spawn("sudo", ["-n", script], {
-      detached: true,
-      stdio: ["ignore", "ignore", "pipe"],
-      env: process.env,
-    });
+    const child = spawn(
+      "sudo",
+      ["-n", script, ...(operationId ? ["--request-id", operationId] : [])],
+      {
+        detached: true,
+        stdio: ["ignore", "ignore", "pipe"],
+        env: process.env,
+      }
+    );
     const timer = setTimeout(() => {
       settle(() => {
         child.unref();
@@ -279,7 +394,9 @@ export async function startUpdate(
     });
   const launch =
     options.launch ??
-    ((script: string) => launchUpdateScript(script, options.launchConfirmMs));
+    ((script: string) =>
+      launchUpdateScript(script, options.launchConfirmMs, options.operationId));
+  await options.beforeLaunch?.();
   try {
     await launch(scriptPath);
   } catch (error) {

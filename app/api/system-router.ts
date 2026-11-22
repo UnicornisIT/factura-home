@@ -1,9 +1,17 @@
 import { TRPCError } from "@trpc/server";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
 
 import { createRouter, superAdminQuery } from "./middleware";
 import { audit, securitySql } from "./queries/security-store";
 import { env } from "./lib/env";
+import { log } from "./lib/logger";
 import {
+  recordUpdateRequest,
+  updateHistory,
+} from "./queries/update-notifications";
+import {
+  compareStableRelease,
   fetchLatestRelease,
   isUpdateRunning,
   readCurrentVersion,
@@ -33,13 +41,34 @@ export const systemRouter = createRouter({
       currentVersion,
       latest,
       latestError,
-      lastOperation,
+      latestComparison: latest
+        ? compareStableRelease(latest.tag, currentVersion)
+        : null,
+      lastOperation: lastOperation && {
+        ...lastOperation,
+        message:
+          lastOperation.message === "already up to date"
+            ? lastOperation.message
+            : null,
+      },
       running: isUpdateRunning(lastOperation),
     };
   }),
 
+  updateHistory: superAdminQuery
+    .input(
+      z
+        .object({ page: z.number().int().min(0).max(10_000).default(0) })
+        .strict()
+    )
+    .query(({ input }) => updateHistory(input.page)),
+
   startUpdate: superAdminQuery.mutation(async ({ ctx }) => {
-    const result = await startUpdate();
+    const operationId = randomUUID();
+    const result = await startUpdate({
+      operationId,
+      beforeLaunch: () => recordUpdateRequest(operationId, ctx.user.telegramId),
+    });
     await audit(
       securitySql,
       ctx.user.telegramId,
@@ -47,7 +76,7 @@ export const systemRouter = createRouter({
       null,
       null,
       null
-    );
-    return result;
+    ).catch(() => log.error("Could not audit update request"));
+    return { ...result, operationId };
   }),
 });

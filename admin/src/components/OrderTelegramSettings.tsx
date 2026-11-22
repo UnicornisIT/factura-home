@@ -4,18 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 export function OrderTelegramSettings() {
+  return <TelegramNotificationSettings topic="orders" />;
+}
+
+export function TelegramNotificationSettings({
+  topic,
+}: {
+  topic: "orders" | "updates";
+}) {
+  const updates = topic === "updates";
   const utils = trpc.useUtils();
-  const settings = trpc.orderNotifications.settings.useQuery();
+  const queries = updates ? trpc.updateNotifications : trpc.orderNotifications;
+  const cache = updates ? utils.updateNotifications : utils.orderNotifications;
+  const settings = queries.settings.useQuery();
   const [feedback, setFeedback] = useState<{
     text: string;
     error?: boolean;
   }>();
   const onError = (error: { message: string }) =>
     setFeedback({ text: error.message, error: true });
-  const change = trpc.orderNotifications.setEnabled.useMutation({
+  const change = queries.setEnabled.useMutation({
     onError,
     onSuccess: ({ enabled }) => {
-      utils.orderNotifications.settings.setData(
+      cache.settings.setData(
         undefined,
         (current) => current && { ...current, enabled },
       );
@@ -26,7 +37,7 @@ export function OrderTelegramSettings() {
       });
     },
   });
-  const test = trpc.orderNotifications.test.useMutation({
+  const test = queries.test.useMutation({
     onError,
     onSuccess: () => setFeedback({ text: "Проверочное сообщение отправлено." }),
   });
@@ -44,7 +55,9 @@ export function OrderTelegramSettings() {
               ? "Не удалось загрузить настройки."
               : current
                 ? current.enabled
-                  ? "Уведомления о новых заказах включены для вашего аккаунта."
+                  ? updates
+                    ? "Уведомления об обновлениях включены для вашего аккаунта."
+                    : "Уведомления о новых заказах включены для вашего аккаунта."
                   : "Чтобы получать уведомления, откройте бота и нажмите /start."
                 : "Загрузка настроек…"}
           </p>
@@ -70,6 +83,7 @@ export function OrderTelegramSettings() {
             <Button
               size="sm"
               variant="outline"
+              className="h-auto min-h-8 max-w-full whitespace-normal"
               disabled={busy || !current.configured}
               onClick={() => {
                 setFeedback(undefined);

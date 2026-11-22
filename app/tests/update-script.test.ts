@@ -121,10 +121,9 @@ async function createFixture() {
   await writeStub("systemd-run", [
     'echo "systemd-run $*" >> "$STUB_LOG"',
     'if [ -n "${STUB_SYSTEMD_RUN_FAIL:-}" ]; then exit 1; fi',
-    'script="${@: -1}"',
     "envs=()",
-    'for a in "$@"; do case "$a" in --setenv=*) envs+=("${a#--setenv=}");; esac; done',
-    'env "${envs[@]}" FACTURA_UPDATE_FORCE_DETACH= bash "$script"',
+    'while [[ "$1" == --* ]]; do case "$1" in --setenv=*) envs+=("${1#--setenv=}");; esac; shift; done',
+    'env "${envs[@]}" FACTURA_UPDATE_FORCE_DETACH= bash "$@"',
   ]);
   await writeStub("sqlite3", [
     'echo "sqlite3 $*" >> "$STUB_LOG"',
@@ -146,7 +145,7 @@ async function createFixture() {
     'if [ -n "${STUB_GIT_FETCH_FAIL:-}" ]; then',
     '  for a in "$@"; do',
     '    if [ "$a" = "fetch" ]; then',
-    '      echo "fatal: unable to access repository: could not resolve host" >&2',
+    `      echo "fatal: unable to access repository: could not resolve host (cookie=${SECRET})" >&2`,
     "      exit 128",
     "    fi",
     "  done",
@@ -273,8 +272,8 @@ async function createFixture() {
     unitFile,
     updateScript,
     baseEnv,
-    run: (overrides: Record<string, string> = {}) =>
-      spawnSync("bash", [updateScript], {
+    run: (overrides: Record<string, string> = {}, args: string[] = []) =>
+      spawnSync("bash", [updateScript, ...args], {
         env: { ...baseEnv, ...overrides },
         encoding: "utf8",
         timeout: 120000,
@@ -316,6 +315,17 @@ describeBash("factura-update.sh", () => {
       expect(status.message).toContain("updated from v0.0.1");
       expect(status.operationId).toBeTruthy();
       expect(status.finishedAt).toBeTruthy();
+      expect(status).toMatchObject({
+        source: "manual",
+        fromVersion: "v0.0.1",
+        targetVersion: "v0.0.2",
+        rollback: null,
+      });
+      const journal = join(
+        fx.dir,
+        "status.json.operation-" + status.operationId + ".json"
+      );
+      expect(JSON.parse(await readFile(journal, "utf8"))).toEqual(status);
       expect(fx.head()).toBe("v0.0.2");
       const log = await fx.readLog();
       for (const stage of [
@@ -589,13 +599,18 @@ describeBash("factura-update.sh", () => {
     await withFixture(async fx => {
       // Заглушка systemd-run синхронно выполняет скрипт-ребёнка, пока родитель
       // ждёт возврата systemd-run — старая гонка flock здесь была бы неизбежна.
-      const result = fx.run({ FACTURA_UPDATE_FORCE_DETACH: "1" });
+      const operationId = "a21000aa-cbbb-4ccc-addd-3abcdef12345";
+      const result = fx.run({ FACTURA_UPDATE_FORCE_DETACH: "1" }, [
+        "--request-id",
+        operationId,
+      ]);
       expect(result.status).toBe(0);
       const stubLog = await fx.readStubLog();
       expect(stubLog).toContain("systemd-run");
       expect(stubLog).toContain("--unit=factura-update");
       const status = await fx.readStatus();
       expect(status.state).toBe("success");
+      expect(status).toMatchObject({ operationId, source: "panel" });
       expect(status.tag).toBe("v0.0.2");
       expect(fx.head()).toBe("v0.0.2");
       expect(await fx.readLog()).toContain("запуск в transient unit");
@@ -619,16 +634,20 @@ describeBash("factura-update.sh", () => {
     });
   }, 120000);
 
-  it("git fetch с ошибкой: диагноз в статусе, код не тронут", async () => {
+  it("git fetch с ошибкой: безопасный статус, код не тронут", async () => {
     await withFixture(async fx => {
       const result = fx.run({ STUB_GIT_FETCH_FAIL: "1" });
       expect(result.status).not.toBe(0);
       const status = await fx.readStatus();
       expect(status.state).toBe("failed");
-      expect(status.message).toContain("git fetch не удался");
-      // Диагностика git попала в сообщение и не содержит секретов.
-      expect(status.message).toContain("could not resolve host");
+      expect(status.message).toBe("git fetch не удался");
       expect(JSON.stringify(status)).not.toContain(SECRET);
+      expect(await fx.readLog()).not.toContain(SECRET);
+      const journal = await readFile(
+        join(fx.dir, `status.json.operation-${status.operationId}.json`),
+        "utf8"
+      );
+      expect(journal).not.toContain(SECRET);
       expect(fx.head()).toBe("v0.0.1");
     });
   }, 120000);

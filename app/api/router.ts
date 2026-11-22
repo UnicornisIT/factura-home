@@ -6,6 +6,7 @@ import { collectionsRouter } from "./collections-router";
 import { productsRouter } from "./products-router";
 import { ordersRouter } from "./orders-router";
 import { orderNotificationsRouter } from "./order-notifications-router";
+import { updateNotificationsRouter } from "./update-notifications-router";
 import { contentRouter } from "./content-router";
 import { blocksRouter } from "./blocks-router";
 import { readCurrentVersion } from "./lib/system-update";
@@ -59,6 +60,7 @@ export const appRouter = createRouter({
   products: productsRouter,
   orders: ordersRouter,
   orderNotifications: orderNotificationsRouter,
+  updateNotifications: updateNotificationsRouter,
   content: contentRouter,
   blocks: blocksRouter,
   system: systemRouter,

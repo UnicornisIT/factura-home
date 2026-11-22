@@ -86,8 +86,11 @@ export default function Access() {
           <CardTitle>Добавить Telegram ID</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAdd} className="flex flex-wrap gap-3 items-end">
-            <div className="flex-1 min-w-[200px]">
+          <form
+            onSubmit={handleAdd}
+            className="grid gap-3 sm:flex sm:flex-wrap sm:items-end"
+          >
+            <div className="min-w-0 sm:min-w-48 sm:flex-1">
               <Label>Telegram ID</Label>
               <Input
                 type="number"
@@ -96,7 +99,7 @@ export default function Access() {
                 placeholder="123456789"
               />
             </div>
-            <div className="w-44">
+            <div className="min-w-0 sm:w-44">
               <Label>Роль</Label>
               <Select
                 value={newRole}
@@ -137,7 +140,7 @@ export default function Access() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table aria-label="Список доступов" className="min-w-[40rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Telegram ID</TableHead>
@@ -275,7 +278,7 @@ export default function Access() {
           <CardTitle>Журнал действий</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
+          <Table aria-label="Журнал доступа" className="min-w-[36rem]">
             <TableHeader>
               <TableRow>
                 <TableHead>Время</TableHead>

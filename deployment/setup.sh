@@ -792,6 +792,18 @@ write_env() {
   if [ -z "$APP_SECRET" ]; then secret_line="APP_SECRET=$(config random)"; fi
   local db_line="SQLITE_PATH=$SQLITE_PATH"
   if [ "$DB_DIALECT" = mysql ]; then db_line="DATABASE_URL=$DATABASE_URL"; fi
+  local trusted_proxy=""
+  case "$TLS_MODE" in
+    letsencrypt|certificate) trusted_proxy=127.0.0.1 ;;
+    existing)
+      trusted_proxy="$(read_old TRUSTED_PROXY_IP)"
+      if [ -z "$trusted_proxy" ] && [ -f "$NGINX_LINK" ] &&
+        grep -qx '# Managed by Factura setup' "$NGINX_LINK" &&
+        grep -Fq "proxy_set_header X-Real-IP \$remote_addr;" "$NGINX_LINK"; then
+        trusted_proxy=127.0.0.1
+      fi
+      ;;
+  esac
   temp="$(mktemp "$APP_DIR/app/.env.setup.XXXXXX")"
   if ! config dotenv "$previous" >"$temp" <<ENV
 NODE_ENV=production
@@ -805,6 +817,7 @@ SUPER_ADMIN_TELEGRAM_ID=$SUPER_ADMIN_TELEGRAM_ID
 UPLOAD_DIR=$UPLOAD_DIR
 PORT=$PORT
 HOST=$HOST
+TRUSTED_PROXY_IP=$trusted_proxy
 SERVER_UPDATE_ENABLED=$UPDATE_ENABLED
 SERVER_UPDATE_REPOSITORY=$REPOSITORY
 GITHUB_TOKEN=$GITHUB_TOKEN
