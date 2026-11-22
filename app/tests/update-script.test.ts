@@ -145,7 +145,7 @@ async function createFixture() {
     'if [ -n "${STUB_GIT_FETCH_FAIL:-}" ]; then',
     '  for a in "$@"; do',
     '    if [ "$a" = "fetch" ]; then',
-    '      echo "fatal: unable to access repository: could not resolve host" >&2',
+    `      echo "fatal: unable to access repository: could not resolve host (cookie=${SECRET})" >&2`,
     "      exit 128",
     "    fi",
     "  done",
@@ -634,16 +634,20 @@ describeBash("factura-update.sh", () => {
     });
   }, 120000);
 
-  it("git fetch с ошибкой: диагноз в статусе, код не тронут", async () => {
+  it("git fetch с ошибкой: безопасный статус, код не тронут", async () => {
     await withFixture(async fx => {
       const result = fx.run({ STUB_GIT_FETCH_FAIL: "1" });
       expect(result.status).not.toBe(0);
       const status = await fx.readStatus();
       expect(status.state).toBe("failed");
-      expect(status.message).toContain("git fetch не удался");
-      // Диагностика git попала в сообщение и не содержит секретов.
-      expect(status.message).toContain("could not resolve host");
+      expect(status.message).toBe("git fetch не удался");
       expect(JSON.stringify(status)).not.toContain(SECRET);
+      expect(await fx.readLog()).not.toContain(SECRET);
+      const journal = await readFile(
+        join(fx.dir, `status.json.operation-${status.operationId}.json`),
+        "utf8"
+      );
+      expect(journal).not.toContain(SECRET);
       expect(fx.head()).toBe("v0.0.1");
     });
   }, 120000);
