@@ -68,6 +68,8 @@ function openPage({
                   return { success: true };
                 case "orders.newCount":
                   return 0;
+                case "updateNotifications.inbox":
+                  return { items: [], unread: 0, hasNext: false };
                 default:
                   throw new Error(`Unexpected API call: ${op.path}`);
               }

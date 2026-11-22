@@ -16,12 +16,54 @@ import { createProduct, updateProduct } from "../api/queries/products";
 import { listOrders } from "../api/queries/orders";
 import { ordersRouter } from "../api/orders-router";
 import { securitySql } from "../api/queries/security-store";
+import {
+  changeUpdateTelegramPreference,
+  markUpdateRead,
+  observeRelease,
+  updateInbox,
+} from "../api/queries/update-notifications";
 import { env } from "../api/lib/env";
 import { consumeRateLimit } from "../api/lib/rate-limit";
 import { deliverNextOrderNotification } from "../api/lib/order-telegram";
 import { blocksRouter } from "../api/blocks-router";
 import { blockDefaults } from "@contracts/blocks";
 import { checkInitialAdmins } from "./bootstrap-admins-scenarios";
+
+async function checkUpdateNotifications() {
+  const now = Date.now();
+  const repository = "smoke/" + randomUUID();
+  const release = {
+    version: "v1.10.0",
+    publishedAt: new Date(now - 1000).toISOString(),
+  };
+  await observeRelease(repository, null, now - 2000);
+  await changeUpdateTelegramPreference(200, true);
+  const recorded = await Promise.all([
+    observeRelease(repository, release, now),
+    observeRelease(repository, release, now),
+  ]);
+  assert.equal(recorded.filter(Boolean).length, 1);
+  const event = (await updateInbox(200, 0)).items.find(
+    item => item.version === release.version
+  );
+  assert.ok(event && !event.isRead);
+  await markUpdateRead(200, event.id);
+  await markUpdateRead(200);
+  assert.equal((await updateInbox(200, 0)).unread, 0);
+  assert.equal(
+    (await updateInbox(100, 0)).items.find(item => item.id === event.id)
+      ?.isRead,
+    false
+  );
+  await changeUpdateTelegramPreference(200, false);
+  assert.deepEqual(
+    await securitySql(
+      "SELECT status FROM updateTelegramOutbox WHERE eventId = ?",
+      [event.id]
+    ),
+    [{ status: "cancelled" }]
+  );
+}
 
 async function checkHomePublication() {
   const context = {
@@ -107,6 +149,7 @@ async function smoke() {
   await changeAccess(100, 200, "deactivate");
   await changeAccess(100, 200, "add");
   assert.equal(await verifySessionToken(token), null);
+  await checkUpdateNotifications();
   const collection = await createCollection({
     slug: randomUUID(),
     title: "Test",

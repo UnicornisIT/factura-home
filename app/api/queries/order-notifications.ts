@@ -9,12 +9,13 @@ import {
 } from "./security-store";
 
 // Do not let the worker observe writes from an uncommitted SQLite transaction.
-const notificationSql: Sql = (...args) =>
+export const notificationSql: Sql = (...args) =>
   env.dbDialect === "sqlite"
     ? withSqliteTransactionLock(() => securitySql(...args))
     : securitySql(...args);
 
-const eligibleAdmin = "a.isActive = 1 AND a.role IN ('admin', 'super_admin')";
+export const eligibleAdmin =
+  "a.isActive = 1 AND a.role IN ('admin', 'super_admin')";
 export const maxDeliveryAttempts = 6;
 export const deliveryLeaseMs = 60_000;
 
@@ -43,16 +44,19 @@ export type Delivery = {
   leaseUntil: number;
 };
 
-export async function claimOrderNotification(
+type Outbox = "orderTelegramOutbox" | "updateTelegramOutbox";
+
+export async function claimTelegramDelivery(
+  table: Outbox,
   now: number
 ): Promise<Delivery | undefined> {
   await notificationSql(
-    `UPDATE orderTelegramOutbox SET status = 'failed', claimToken = NULL
+    `UPDATE ${table} SET status = 'failed', claimToken = NULL
      WHERE status = 'pending' AND availableAt <= ? AND attempts >= ?`,
     [now, maxDeliveryAttempts]
   );
   const [candidate] = await notificationSql(
-    `SELECT id FROM orderTelegramOutbox
+    `SELECT id FROM ${table}
      WHERE status = 'pending' AND availableAt <= ? AND attempts < ?
      ORDER BY availableAt, id LIMIT 1`,
     [now, maxDeliveryAttempts]
@@ -61,12 +65,12 @@ export async function claimOrderNotification(
   const id = Number(candidate.id);
   const claimToken = randomUUID();
   await notificationSql(
-    `UPDATE orderTelegramOutbox SET claimToken = ?, attempts = attempts + 1, availableAt = ?
+    `UPDATE ${table} SET claimToken = ?, attempts = attempts + 1, availableAt = ?
      WHERE id = ? AND status = 'pending' AND availableAt <= ? AND attempts < ?`,
     [claimToken, now + deliveryLeaseMs, id, now, maxDeliveryAttempts]
   );
   const [claimed] = await notificationSql(
-    "SELECT attempts FROM orderTelegramOutbox WHERE id = ? AND claimToken = ?",
+    `SELECT attempts FROM ${table} WHERE id = ? AND claimToken = ?`,
     [id, claimToken]
   );
   if (claimed)
@@ -107,13 +111,24 @@ export async function readEligibleDelivery(delivery: Delivery, now: number) {
   );
 }
 
-export async function finishOrderNotification(
+export async function finishTelegramDelivery(
+  table: Outbox,
   delivery: Delivery,
   status: "sent" | "failed" | "cancelled" | "pending",
   availableAt = 0
 ) {
   await notificationSql(
-    "UPDATE orderTelegramOutbox SET status = ?, availableAt = ?, claimToken = NULL WHERE id = ? AND claimToken = ?",
+    `UPDATE ${table} SET status = ?, availableAt = ?, claimToken = NULL WHERE id = ? AND claimToken = ?`,
     [status, availableAt, delivery.id, delivery.claimToken]
   );
 }
+
+export const claimOrderNotification = (now: number) =>
+  claimTelegramDelivery("orderTelegramOutbox", now);
+
+export const finishOrderNotification = (
+  delivery: Delivery,
+  status: Parameters<typeof finishTelegramDelivery>[2],
+  availableAt?: number
+) =>
+  finishTelegramDelivery("orderTelegramOutbox", delivery, status, availableAt);

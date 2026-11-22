@@ -26,11 +26,20 @@ type SendResult =
 
 export const telegramTimeoutMs = 10_000;
 
+type MessageOptions = {
+  html?: boolean;
+  button?: { text: string; url: string };
+};
+
 export async function sendTelegramMessage(
   telegramId: number,
   message: string,
-  orderUrl?: string
+  options?: string | MessageOptions
 ): Promise<SendResult> {
+  const { html, button } =
+    typeof options === "string"
+      ? { html: false, button: { text: "Открыть заказ", url: options } }
+      : (options ?? {});
   try {
     const response = await fetch(
       `https://api.telegram.org/bot${env.telegramBotToken}/sendMessage`,
@@ -44,9 +53,10 @@ export async function sendTelegramMessage(
           text: message,
           protect_content: true,
           link_preview_options: { is_disabled: true },
-          ...(orderUrl && {
+          ...(html && { parse_mode: "HTML" }),
+          ...(button && {
             reply_markup: {
-              inline_keyboard: [[{ text: "Открыть заказ", url: orderUrl }]],
+              inline_keyboard: [[button]],
             },
           }),
         }),
@@ -80,6 +90,11 @@ export async function sendTelegramMessage(
     // Fetch errors may include the request URL, which contains the bot token.
   }
   return { kind: "retry" };
+}
+
+export function telegramRetryDelay(attempts: number, retryAfterMs = 0) {
+  const delay = 15_000 * 2 ** (attempts - 1) + Math.floor(Math.random() * 5000);
+  return Math.max(delay, retryAfterMs);
 }
 
 type SavedOrder = NonNullable<Awaited<ReturnType<typeof readEligibleDelivery>>>;
@@ -157,12 +172,10 @@ export async function deliverNextOrderNotification() {
     new URL("/admin/orders", env.publicOrigin).href
   );
   if (result.kind === "retry" && delivery.attempts < maxDeliveryAttempts) {
-    const delay =
-      15_000 * 2 ** (delivery.attempts - 1) + Math.floor(Math.random() * 5000);
     await finishOrderNotification(
       delivery,
       "pending",
-      Date.now() + Math.max(delay, result.retryAfterMs ?? 0)
+      Date.now() + telegramRetryDelay(delivery.attempts, result.retryAfterMs)
     );
   } else {
     const sent = result.kind === "sent";

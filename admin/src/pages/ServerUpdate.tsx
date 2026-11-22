@@ -5,22 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ReleaseNotes } from "@/components/ReleaseNotes";
+import { UpdateHistory } from "@/components/UpdateHistory";
+import { formatDateTime } from "@/lib/utils";
 import { Loader2, RefreshCw, ExternalLink } from "lucide-react";
 import { installationStatus } from "./server-update-state";
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleString("ru-RU", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-}
 
 function StateBadge({ state }: { state: "running" | "success" | "failed" }) {
   if (state === "running") return <Badge variant="warning">выполняется</Badge>;
@@ -33,7 +21,9 @@ export default function ServerUpdate() {
   // Ждём подтверждения результата сервером: во время перезапуска API может
   // временно не отвечать, и это не должно показываться как успех.
   const [awaitingResult, setAwaitingResult] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const clickedAtRef = useRef(0);
+  const operationIdRef = useRef<string | null>(null);
   const { data, isLoading, isError } = trpc.system.updateStatus.useQuery(
     undefined,
     {
@@ -42,8 +32,8 @@ export default function ServerUpdate() {
     },
   );
   const startUpdate = trpc.system.startUpdate.useMutation({
-    onSuccess: () => {
-      clickedAtRef.current = Date.now();
+    onSuccess: ({ operationId }) => {
+      operationIdRef.current = operationId;
       setAwaitingResult(true);
       void utils.system.updateStatus.invalidate();
     },
@@ -53,34 +43,44 @@ export default function ServerUpdate() {
   const running = data?.running ?? false;
   const currentVersion = data?.currentVersion ?? null;
   const latest = data?.latest ?? null;
-  const upToDate =
-    !!latest && !!currentVersion && latest.tag === `v${currentVersion}`;
+  const comparison = data?.latestComparison;
+  const upToDate = comparison === 0;
+  const older = comparison === -1;
   const status = installationStatus({
     running,
     enabled,
     upToDate,
-    latestKnown: !!latest,
+    latestKnown: comparison === 1,
   });
 
   const op = data?.lastOperation ?? null;
 
   useEffect(() => {
-    if (!awaitingResult || !data || !op?.startedAt) return;
-    if (
-      Date.parse(op.startedAt) >= clickedAtRef.current - 5000 &&
-      !data.running
-    ) {
-      setAwaitingResult(false);
-    }
+    if (!awaitingResult) return;
+    const matches =
+      (!!op?.operationId && op.operationId === operationIdRef.current) ||
+      (op?.source === undefined &&
+        !!op?.startedAt &&
+        Date.parse(op.startedAt) >= clickedAtRef.current - 1000);
+    const timeout = window.setTimeout(
+      () => {
+        setAwaitingResult(false);
+        setUnconfirmed(!matches || (op?.state === "running" && !data?.running));
+      },
+      matches ? 0 : Math.max(0, 60_000 - (Date.now() - clickedAtRef.current)),
+    );
+    return () => window.clearTimeout(timeout);
   }, [awaitingResult, data, op]);
 
   const handleUpdate = () => {
     if (
       latest &&
       confirm(
-        `${upToDate ? "Повторно установить" : "Обновить до"} ${latest.tag}? Магазин будет временно недоступен.`,
+        `${upToDate ? "Повторно установить" : older ? "Установить" : "Обновить до"} ${latest.tag}? Магазин будет временно недоступен.`,
       )
     ) {
+      clickedAtRef.current = Date.now();
+      setUnconfirmed(false);
       startUpdate.mutate();
     }
   };
@@ -97,13 +97,20 @@ export default function ServerUpdate() {
         </Card>
       )}
 
-      {awaitingResult && isError && (
+      {(awaitingResult || running) && isError && (
         <Card className="mb-6 border-amber-200 bg-amber-50">
           <CardContent role="status" className="pt-6 text-sm text-amber-800">
             <Loader2 className="mr-2 inline h-4 w-4 motion-safe:animate-spin" />
             Ждём ответа магазина после перезапуска…
           </CardContent>
         </Card>
+      )}
+
+      {unconfirmed && !running && (
+        <p role="status" className="mb-6 text-sm text-amber-800">
+          Итог запрошенной операции пока не подтверждён. Проверьте историю
+          обновлений.
+        </p>
       )}
 
       {((isError && !data && !awaitingResult) || startUpdate.isError) && (
@@ -137,19 +144,19 @@ export default function ServerUpdate() {
         </Card>
       )}
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:gap-6">
         <Card>
           <CardHeader>
             <CardTitle>На сервере</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-slate-500">Текущая версия</span>
               <span className="font-mono font-medium">
                 {currentVersion ? `v${currentVersion}` : "не определена"}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-slate-500">Статус</span>
               {(running || awaitingResult) && <StateBadge state="running" />}
               {!awaitingResult && status === "up-to-date" && (
@@ -159,7 +166,13 @@ export default function ServerUpdate() {
                 <Badge variant="outline">доступно обновление</Badge>
               )}
               {!awaitingResult && status === "unknown" && (
-                <Badge variant="outline">нет данных о релизе</Badge>
+                <Badge variant="outline">
+                  {older
+                    ? "на сервере более новая версия"
+                    : latest
+                      ? "версию релиза не удалось сравнить"
+                      : "нет данных о релизе"}
+                </Badge>
               )}
               {data && !awaitingResult && status === "disabled" && (
                 <Badge variant="outline">недоступно</Badge>
@@ -182,14 +195,14 @@ export default function ServerUpdate() {
             )}
             {latest && (
               <>
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-slate-500">Версия</span>
                   <span className="font-mono font-medium">{latest.tag}</span>
                 </div>
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-slate-500">Опубликован</span>
                   <span className="text-xs">
-                    {formatDate(latest.publishedAt)}
+                    {formatDateTime(latest.publishedAt)}
                   </span>
                 </div>
                 {latest.url && (
@@ -214,6 +227,7 @@ export default function ServerUpdate() {
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <Button
+          className="h-auto min-h-9 max-w-full whitespace-normal"
           onClick={handleUpdate}
           disabled={
             !enabled ||
@@ -229,10 +243,11 @@ export default function ServerUpdate() {
           {running || awaitingResult || startUpdate.isPending
             ? "Обновление выполняется…"
             : latest
-              ? `${upToDate ? "Повторно установить" : "Обновить до"} ${latest.tag}`
+              ? `${upToDate ? "Повторно установить" : older ? "Установить" : "Обновить до"} ${latest.tag}`
               : "Обновить"}
         </Button>
       </div>
+      <UpdateHistory />
     </AdminLayout>
   );
 }

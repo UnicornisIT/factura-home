@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 
 import { env } from "../lib/env";
+import { cancelUpdateDeliveriesSql } from "./update-notifications";
 
 import {
   securitySql,
@@ -179,10 +180,16 @@ export async function changeAccess(
       );
     }
 
-    if (operation === "deactivate")
+    if (operation === "deactivate") {
       await sql("DELETE FROM orderTelegramSubscriptions WHERE telegramId = ?", [
         id,
       ]);
+      await sql(
+        "DELETE FROM updateTelegramSubscriptions WHERE telegramId = ?",
+        [id]
+      );
+      await sql(cancelUpdateDeliveriesSql, [id]);
+    }
 
     // Reactivation must never make a previously issued session valid again.
 

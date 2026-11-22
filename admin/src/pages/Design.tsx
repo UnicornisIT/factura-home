@@ -192,7 +192,7 @@ export default function Design() {
       title="Дизайн сайта"
       description="Цвета, шрифты и оформление витрины. Изменения применяются сразу после сохранения."
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={() =>
@@ -267,7 +267,7 @@ export default function Design() {
         </CardContent>
       </Card>
       <LoginBackgroundSetting />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Цветовая палитра</CardTitle>

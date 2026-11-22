@@ -1,7 +1,15 @@
 import { trpc } from "@/providers/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DialogClose,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Content as DialogPanel } from "@radix-ui/react-dialog";
 import { Link, NavLink } from "react-router";
+import type { MouseEvent } from "react";
 import {
   LayoutDashboard,
   Package,
@@ -15,6 +23,7 @@ import {
   ShieldCheck,
   RefreshCw,
   Palette,
+  X,
 } from "lucide-react";
 import { switchAccountPath, useAuth, useLogout } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -30,8 +39,12 @@ const NAV_BASE = [
 ];
 
 export function Sidebar({
+  mobile,
+  onNavigate,
   onBeforeLogout,
 }: {
+  mobile: boolean;
+  onNavigate: () => void;
   onBeforeLogout?: () => boolean;
 }) {
   const { user, isSuperAdmin } = useAuth();
@@ -41,7 +54,6 @@ export function Sidebar({
     retry: false,
   });
 
-  // Только super_admin видит страницы "Доступ" и "Обновление сервера".
   const nav = isSuperAdmin
     ? [
         ...NAV_BASE,
@@ -55,17 +67,50 @@ export function Sidebar({
       ]
     : NAV_BASE;
 
-  return (
-    <aside className="flex flex-col w-60 shrink-0 bg-sidebar text-slate-100 border-r border-sidebar-border">
-      {/* Лого */}
-      <div className="px-4 py-5 border-b border-sidebar-border">
-        <div className="font-semibold text-base leading-tight">
-          Панель администратора
-        </div>
+  function handleNavigate(event: MouseEvent<HTMLAnchorElement>) {
+    if (
+      mobile &&
+      event.button === 0 &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey
+    ) {
+      onNavigate();
+    }
+  }
+
+  const content = (
+    <>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-sidebar-border px-4 py-2 lg:py-5">
+        {mobile ? (
+          <>
+            <DialogTitle className="text-base leading-tight">
+              Панель администратора
+            </DialogTitle>
+            <DialogClose asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-11 shrink-0 text-slate-300 hover:bg-sidebar-hover hover:text-white"
+                aria-label="Закрыть меню"
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </DialogClose>
+          </>
+        ) : (
+          <div className="font-semibold text-base leading-tight">
+            Панель администратора
+          </div>
+        )}
       </div>
 
-      {/* Навигация */}
-      <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+      <nav
+        aria-label="Разделы админки"
+        className="py-3 px-2 space-y-0.5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
+      >
         {nav.map((item) => {
           const Icon = item.icon;
           return (
@@ -73,9 +118,10 @@ export function Sidebar({
               key={item.to}
               to={item.to}
               end={item.end}
+              onClick={handleNavigate}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors",
+                  "flex min-h-11 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400 lg:min-h-0",
                   isActive
                     ? "bg-sidebar-active text-white"
                     : "text-slate-300 hover:bg-sidebar-hover hover:text-white",
@@ -100,7 +146,6 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Футер сайдбара: пользователь и выход */}
       <div className="border-t border-sidebar-border p-3 space-y-2">
         <a
           href="/"
@@ -113,7 +158,9 @@ export function Sidebar({
           Открыть магазин
         </a>
         <Button asChild variant="outline" size="sm" className="w-full">
-          <Link to={switchAccountPath}>Войти в другой аккаунт</Link>
+          <Link to={switchAccountPath} onClick={handleNavigate}>
+            Войти в другой аккаунт
+          </Link>
         </Button>
         <div className="flex items-center justify-between gap-2 bg-sidebar-hover rounded-md px-2 py-1.5">
           <div className="flex items-center gap-2 min-w-0">
@@ -170,6 +217,26 @@ export function Sidebar({
           </p>
         )}
       </div>
+    </>
+  );
+
+  if (mobile) {
+    return (
+      <DialogPortal>
+        <DialogOverlay className="backdrop-blur-none motion-reduce:animate-none" />
+        <DialogPanel
+          aria-describedby={undefined}
+          className="admin-drawer fixed inset-y-0 left-0 z-50 flex w-72 max-w-[calc(100%-2rem)] flex-col overflow-y-auto overscroll-contain border-r border-sidebar-border bg-sidebar text-slate-100 shadow-xl outline-none data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left duration-200 motion-reduce:animate-none"
+        >
+          {content}
+        </DialogPanel>
+      </DialogPortal>
+    );
+  }
+
+  return (
+    <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-slate-100">
+      {content}
     </aside>
   );
 }

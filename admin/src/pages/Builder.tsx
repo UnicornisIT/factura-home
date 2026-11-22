@@ -80,13 +80,13 @@ function SortableBlockCard({
         transition,
         opacity: isDragging ? 0.6 : block.isVisible ? 1 : 0.55,
       }}
-      className="flex items-center gap-2 p-3"
+      className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 p-3 sm:flex"
     >
       <Button
         type="button"
         size="icon"
         variant="ghost"
-        className="h-8 w-8 cursor-grab touch-none text-slate-500"
+        className="size-11 shrink-0 cursor-grab touch-none text-slate-500 sm:size-8"
         aria-label={`Переместить блок «${BLOCK_LABELS[block.type]}»`}
         {...attributes}
         {...listeners}
@@ -95,18 +95,18 @@ function SortableBlockCard({
       </Button>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-col items-start gap-1">
-          <span className="max-w-full truncate text-sm font-medium">
+          <span className="max-w-full text-sm font-medium sm:truncate">
             {blockSummary(block)}
           </span>
           <Badge variant="brand">{BLOCK_LABELS[block.type]}</Badge>
           {!block.isVisible && <Badge variant="warning">скрыт</Badge>}
         </div>
       </div>
-      <div className="flex shrink-0 gap-1">
+      <div className="col-start-2 flex shrink-0 flex-wrap justify-end gap-1">
         <Button
           size="icon"
           variant="ghost"
-          className="h-8 w-8"
+          className="size-11 sm:size-8"
           onClick={onToggleVisible}
           aria-label={block.isVisible ? "Скрыть блок" : "Показать блок"}
           title={
@@ -122,7 +122,7 @@ function SortableBlockCard({
         <Button
           size="icon"
           variant="ghost"
-          className="h-8 w-8"
+          className="size-11 sm:size-8"
           onClick={onEdit}
           aria-label="Редактировать блок"
           title="Редактировать"
@@ -132,7 +132,7 @@ function SortableBlockCard({
         <Button
           size="icon"
           variant="ghost"
-          className="h-8 w-8 text-red-600 hover:text-red-700"
+          className="size-11 text-red-600 hover:text-red-700 sm:size-8"
           onClick={onDelete}
           aria-label="Удалить блок"
           title="Удалить"
@@ -352,7 +352,7 @@ export default function Builder() {
                             : ""}
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 [&>button]:h-auto [&>button]:min-h-8 [&>button]:max-w-full [&>button]:whitespace-normal">
               <Button
                 size="sm"
                 variant="outline"
@@ -535,7 +535,7 @@ export default function Builder() {
             closeEdit();
         }}
       >
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
               {editing ? BLOCK_LABELS[editing.type] : ""}

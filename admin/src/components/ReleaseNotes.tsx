@@ -52,9 +52,24 @@ export function ReleaseNotes({ notes }: { notes: string }) {
       role="region"
       aria-label="Что нового"
       tabIndex={0}
-      className="release-notes max-h-72 overflow-auto rounded-sm text-sm leading-relaxed text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+      className="release-notes max-h-72 min-w-0 overflow-x-hidden overflow-y-auto rounded-sm text-sm leading-relaxed text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
     >
-      <Markdown remarkPlugins={[remarkGfm, hideTechnicalNotes]} skipHtml>
+      <Markdown
+        remarkPlugins={[remarkGfm, hideTechnicalNotes]}
+        skipHtml
+        components={{
+          table: ({ children }) => (
+            <div
+              role="region"
+              aria-label="Таблица изменений"
+              tabIndex={0}
+              className="max-w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400"
+            >
+              <table className="w-max min-w-full">{children}</table>
+            </div>
+          ),
+        }}
+      >
         {notes}
       </Markdown>
     </div>

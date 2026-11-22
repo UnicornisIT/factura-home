@@ -22,6 +22,12 @@ it("renders GitHub Markdown and hides technical notes from current and older rel
         "",
         "### Изменено",
         "",
+        "> Информация для покупателей.",
+        "",
+        "1. Сохранён *каталог*.",
+        "",
+        "`команда`",
+        "",
         "| Раздел | Изменение |",
         "| --- | --- |",
         "| Каталог | ~~Старый фильтр~~ |",
@@ -35,8 +41,16 @@ it("renders GitHub Markdown and hides technical notes from current and older rel
   expect(
     notes.getByRole("link", { name: "предпросмотром" }).getAttribute("href"),
   ).toBe("https://example.com/editor");
-  expect(notes.getAllByRole("listitem")).toHaveLength(1);
-  expect(notes.getByRole("table")).toBeTruthy();
+  expect(notes.getAllByRole("listitem")).toHaveLength(2);
+  expect(notes.getByText("каталог", { exact: true }).tagName).toBe("EM");
+  expect(notes.getByText("команда").tagName).toBe("CODE");
+  expect(
+    notes.getByText("Информация для покупателей.").closest("blockquote"),
+  ).toBeTruthy();
+  const tableRegion = notes.getByRole("region", { name: "Таблица изменений" });
+  expect(tableRegion.tabIndex).toBe(0);
+  expect(within(tableRegion).getByRole("table")).toBeTruthy();
+  expect(notes.queryByText(/###|\*\*Редактор|\]\(/)).toBeNull();
   expect(notes.getByText("Старый фильтр").tagName).toBe("DEL");
   expect(
     notes.queryByText(/007_home_page_draft|ShellCheck|Изменились настройки/),

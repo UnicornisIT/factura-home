@@ -7,6 +7,7 @@ import { createContext } from "./context";
 import { env } from "./lib/env";
 import { log } from "./lib/logger";
 import { startOrderNotificationWorker } from "./lib/order-telegram";
+import { startUpdateNotificationWorkers } from "./lib/update-notifications";
 import { validMutationOrigin } from "./lib/csrf";
 import { consumeRateLimit } from "./lib/rate-limit";
 import { clientIp } from "./lib/client-ip";
@@ -238,6 +239,7 @@ export default app;
 if (env.isProduction && process.env.NODE_ENV !== "test") {
   await ensureOwner();
   startOrderNotificationWorker();
+  startUpdateNotificationWorkers();
   const { serve } = await import("@hono/node-server");
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);

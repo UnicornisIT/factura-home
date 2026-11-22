@@ -120,7 +120,7 @@ export default function Collections() {
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {(collections ?? []).map((c) => (
-          <Card key={c.id} className="overflow-hidden">
+          <Card key={c.id} className="overflow-hidden [overflow-wrap:anywhere]">
             <div className="h-32 bg-slate-100 overflow-hidden">
               {c.coverImage && (
                 <img
@@ -151,7 +151,7 @@ export default function Collections() {
                   </Button>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2 pt-3">
+              <div className="flex flex-wrap gap-2 pt-3 [&>a]:min-h-10 sm:[&>a]:min-h-0 [&>button]:min-h-10 sm:[&>button]:min-h-0">
                 <Button
                   size="sm"
                   variant="outline"

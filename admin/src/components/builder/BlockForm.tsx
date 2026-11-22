@@ -85,21 +85,23 @@ function IconPicker({
         {ICON_KEYS.map((key) => {
           const active = key === value;
           return (
-            <button
+            <Button
               key={key}
               type="button"
+              size="icon"
+              variant="outline"
               title={ICON_LABELS[key]}
               aria-label={ICON_LABELS[key]}
               aria-pressed={active}
               onClick={() => onChange(key)}
-              className={`flex h-9 w-9 items-center justify-center rounded-md border transition-colors ${
+              className={
                 active
                   ? "border-[#831C25] bg-[#831C25]/10 text-[#831C25]"
                   : "border-slate-200 text-slate-500 hover:border-slate-400"
-              }`}
+              }
             >
               <Icon name={key} size={18} />
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -144,7 +146,7 @@ function ItemsEditor<T>({
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7"
+                className="size-10 sm:size-7"
                 onClick={() => move(index, -1)}
                 disabled={index === 0}
                 aria-label="Переместить выше"
@@ -155,7 +157,7 @@ function ItemsEditor<T>({
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7"
+                className="size-10 sm:size-7"
                 onClick={() => move(index, 1)}
                 disabled={index === items.length - 1}
                 aria-label="Переместить ниже"
@@ -166,7 +168,7 @@ function ItemsEditor<T>({
                 type="button"
                 size="icon"
                 variant="ghost"
-                className="h-7 w-7 text-red-600 hover:text-red-700"
+                className="size-10 text-red-600 hover:text-red-700 sm:size-7"
                 onClick={() => onChange(items.filter((_, i) => i !== index))}
                 aria-label="Удалить элемент"
               >
@@ -224,7 +226,7 @@ function CoverForm({
           rows={3}
         />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Текст кнопки">
           <Input
             value={data.buttonText}
@@ -244,7 +246,7 @@ function CoverForm({
         value={data.image ?? ""}
         onChange={(image) => set("image", image)}
       />
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Компоновка главного экрана">
           <select
             className={selectClass}
@@ -355,7 +357,7 @@ function TextForm({
           rows={8}
         />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Выравнивание">
           <select
             className={selectClass}
